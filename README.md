@@ -147,14 +147,14 @@ replayed`, no second event, no second SSE message).
 
 Measured on a laptop with the production build (`docker compose` image), Chromium:
 
-| What                                                    | Result                                    | Budget                 |
-| ------------------------------------------------------- | ----------------------------------------- | ---------------------- |
-| First-load JS of `/calendar` (gzip)                     | **178 KB**                                | ≤ 200 KB               |
-| Lighthouse, mobile preset, 3 runs per view              | performance 0.98–1.00, accessibility 1.00 | ≥ 0.90 / = 1.00        |
-| Lighthouse LCP / CLS / TBT                              | ~0.8–1.1 s / ≈ 0 / 80–150 ms              | —                      |
-| Week with 2 000 meetings: drag, worst interaction (INP) | ~110 ms                                   | < 200 ms               |
-| Week with 2 000 meetings: frame time while dragging     | median 16.7 ms (60 fps), p95 33 ms        | p95 < 50 ms (asserted) |
-| Day with 50 rooms: drag, INP / frame p95                | 32–40 ms / 16.7 ms                        | < 200 ms               |
+| What                                                    | Result                                                                   | Budget                                 |
+| ------------------------------------------------------- | ------------------------------------------------------------------------ | -------------------------------------- |
+| First-load JS of `/calendar` (gzip)                     | **178 KB**                                                               | ≤ 200 KB                               |
+| Lighthouse, mobile preset, 3 runs per view              | performance 0.98–1.00, accessibility 1.00                                | ≥ 0.90 / = 1.00                        |
+| Lighthouse LCP / CLS / TBT                              | ~0.8–1.1 s / ≈ 0 / 80–150 ms                                             | —                                      |
+| Week with 2 000 meetings: drag, worst interaction (INP) | ~110 ms                                                                  | < 200 ms                               |
+| Week with 2 000 meetings: frame time while dragging     | median 16.7 ms (60 fps), p95 33 ms (about 50 ms on the 2-core CI runner) | median < 20 ms, p95 ≤ 67 ms (asserted) |
+| Day with 50 rooms: drag, INP / frame p95                | 32–40 ms / 16.7 ms                                                       | < 200 ms                               |
 
 What made it fit:
 

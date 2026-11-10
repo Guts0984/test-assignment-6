@@ -46,3 +46,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: cp .env.example .env
       - run: pnpm test:int
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - run: ./scripts/ci-docker-check.sh
+      - if: always()
+        run: docker compose down -v

@@ -24,7 +24,7 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - '3000:3000'
+      - '${WEB_PORT:-3000}:3000'
 
 volumes:
   pgdata:

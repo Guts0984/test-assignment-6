@@ -85,3 +85,11 @@ See chat. Defaults used if unanswered are marked in README "Decisions".
 - `docker compose up --build`: services `postgres`, `web`. `web` CMD runs `dist/bootstrap.mjs` (esbuild bundle: migrate + seed-if-empty, advisory-locked, idempotent) then `server.js`.
 - Seed: 3 users, 50 rooms, exactly 2000 occurrences starting in the next 2 months (recurring counted per occurrence). Fixed fixtures on the real 2026 DST transitions (Kyiv, New York), a Tokyo series, an open-ended series (materialized 1 year ahead), all-day/3-day events, a detached series exception, 5 overlapping events across rooms, and a NY 23:30 call.
 - Time core (pulled forward from stage 6): `src/shared/time` — rrule floating wall-clock expansion + Temporal. UNTIL is a wall-clock bound in the event's zone.
+
+## Stage 3 notes (done)
+
+- Auth API: `POST /api/auth/login`, `POST /api/auth/logout`, `GET/PATCH /api/me` (profile `timezone`, `locale`, `name`; strict schema, no mass assignment). Handlers are factories (`makeXHandler(deps)`) so tests inject the DB and clock; route files only wire them.
+- Sessions: random 32-byte token in an httpOnly, SameSite=Lax cookie; DB stores HMAC-SHA256(SESSION_SECRET, token); expiry instant is exclusive; expired sessions purged on login. Secure flag only when APP_URL is https.
+- CSRF: SameSite=Lax + Origin must match Host on mutating requests.
+- Known limitation (README): no login rate limiting; no sliding session expiry. Login UI comes with the calendar page (stage 10).
+- CI has a `docker` job running `scripts/ci-docker-check.sh` (clean `compose up`, seed counts, API smoke, restart does not re-seed).

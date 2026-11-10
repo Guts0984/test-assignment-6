@@ -7,11 +7,6 @@ import {
   type RecurringSource,
 } from '@/shared/time';
 
-/**
- * Every concrete occurrence of an event (what goes into `event_occurrences`).
- * Non-recurring: its single occurrence. Recurring: from the series start up to `horizon`
- * (exclusive), minus exdates.
- */
 export function occurrencesOf(src: RecurringSource, horizon: Temporal.Instant): Occurrence[] {
   const start = parseInstant(src.startAt);
   if (!src.rrule) return [{ start, end: parseInstant(src.endAt) }];

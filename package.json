@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run",
+    "test": "pnpm test:unit && pnpm test:int",
     "test:watch": "vitest",
     "test:unit": "vitest run --project unit",
     "test:int": "vitest run --project integration",

@@ -69,17 +69,6 @@ export const rooms = pgTable(
   (t) => [check('rooms_capacity_chk', sql`${t.capacity} > 0`)],
 );
 
-/**
- * An event, or the master of a recurring series.
- * `startAt`/`endAt` describe the FIRST occurrence in UTC; the wall-clock time for recurrence
- * expansion is derived from them in `tzid`, so "Mondays 9:00 Kyiv" stays 9:00 across DST.
- *
- * Editing rules for series (implemented in the service layer):
- *  - "only this": add the occurrence start to `exdates`, create a detached event with
- *    `seriesId` + `originalStart` pointing back;
- *  - "this and following": set UNTIL on this master, create a new master;
- *  - "all": update the master.
- */
 export const events = pgTable(
   'events',
   {
@@ -141,12 +130,6 @@ export const eventAttendees = pgTable(
   (t) => [primaryKey({ columns: [t.eventId, t.userId] }), index('attendees_user_idx').on(t.userId)],
 );
 
-/**
- * Every concrete occupation of a room. Non-recurring event = one row; recurring = one row per
- * occurrence up to `events.materialized_until`. The exclusion constraint (added in the custom
- * migration `0001_room_exclusion.sql`, Drizzle cannot express it) guarantees no two rows
- * overlap in the same room. Ranges are half-open `[start, end)`, so back-to-back is allowed.
- */
 export const eventOccurrences = pgTable(
   'event_occurrences',
   {

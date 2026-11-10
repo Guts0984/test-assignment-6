@@ -1,10 +1,5 @@
 import { z } from 'zod';
 
-/**
- * Single place where process.env is read. Server-only: never import from client code.
- * Non-secret values have defaults; secrets (DATABASE_URL, SESSION_SECRET, SEED_USER_PASSWORD)
- * are required and come from .env (see .env.example).
- */
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   APP_URL: z.url().default('http://localhost:3000'),

@@ -70,3 +70,10 @@ Rules: features import only from `shared` and other features' public `index.ts`;
 ## Open questions
 
 See chat. Defaults used if unanswered are marked in README "Decisions".
+
+## Stage 1 notes (done)
+
+- Occurrences are materialized (`event_occurrences`, exclusion constraint on `(room_id, during)`), so the DB guarantees no double-booking for recurring events too. Infinite series are materialized up to `materialized_until` (extension job, stage 4).
+- Series edits: "only this" = exdate + detached event (`series_id`, `original_start`); "this and following" = UNTIL on master + new master; "all" = update master. Deleting a master cascades to its detached exceptions.
+- Instants are `timestamptz` read as strings (no JS `Date`).
+- Integration tests use a real Postgres (`pnpm db:up`, then `pnpm test:int`).

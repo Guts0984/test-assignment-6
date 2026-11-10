@@ -21,4 +21,28 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm format:check
-      - run: pnpm test
+      - run: pnpm test:unit
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: calendar
+          POSTGRES_PASSWORD: calendar_dev_password
+          POSTGRES_DB: calendar
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U calendar" --health-interval 3s
+          --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: cp .env.example .env
+      - run: pnpm test:int

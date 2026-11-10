@@ -78,3 +78,10 @@ See chat. Defaults used if unanswered are marked in README "Decisions".
 - Instants are `timestamptz` read as strings (no JS `Date`).
 - Integration tests use a real Postgres (`pnpm db:up`, then `pnpm test:int`).
 - Concurrency finding: simultaneous overlapping inserts can fail with `40P01` (deadlock) instead of `23P01`. Stage 4 service must retry once on `40P01`/`40001`, then map `23P01` to 409 with the blocking event.
+- DST finding (seed): a wall-clock range like 02:30-03:30 on a spring-forward day collapses to zero length (02:30 does not exist). The events API (stage 4) must derive `end` as start + duration in real time, or reject ranges where end <= start after conversion; tests required.
+
+## Stage 2 + infra notes (done, pulled forward)
+
+- `docker compose up --build`: services `postgres`, `web`. `web` CMD runs `dist/bootstrap.mjs` (esbuild bundle: migrate + seed-if-empty, advisory-locked, idempotent) then `server.js`.
+- Seed: 3 users, 50 rooms, exactly 2000 occurrences starting in the next 2 months (recurring counted per occurrence). Fixed fixtures on the real 2026 DST transitions (Kyiv, New York), a Tokyo series, an open-ended series (materialized 1 year ahead), all-day/3-day events, a detached series exception, 5 overlapping events across rooms, and a NY 23:30 call.
+- Time core (pulled forward from stage 6): `src/shared/time` — rrule floating wall-clock expansion + Temporal. UNTIL is a wall-clock bound in the event's zone.

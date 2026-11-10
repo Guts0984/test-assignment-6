@@ -20,9 +20,11 @@
     "test:unit": "vitest run --project unit",
     "test:int": "vitest run --project integration",
     "db:generate": "drizzle-kit generate",
-    "db:up": "docker compose up -d --wait postgres"
+    "db:up": "docker compose up -d --wait postgres",
+    "build:bootstrap": "esbuild src/server/db/bootstrap.ts --bundle --platform=node --format=esm --target=node24 --outfile=dist/bootstrap.mjs --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\""
   },
   "dependencies": {
+    "@js-temporal/polyfill": "^0.5.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.4",
@@ -32,6 +34,7 @@
     "postgres": "^4.1.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "rrule": "^2.8.1",
     "tailwind-merge": "^3.7.0",
     "zod": "^4.6.7"
   },
@@ -46,6 +49,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",
     "drizzle-kit": "^0.31.11",
+    "esbuild": "^0.28.2",
     "eslint": "^10.14.0",
     "eslint-config-next": "^16.4.5",
     "eslint-plugin-boundaries": "^7.4.2",

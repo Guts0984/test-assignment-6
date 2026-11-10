@@ -1,4 +1,4 @@
 allowBuilds:
   '@parcel/watcher': false
   '@swc/core': false
-  esbuild: set this to true or false
+  esbuild: true

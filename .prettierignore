@@ -4,4 +4,4 @@ pnpm-lock.yaml
 coverage
 playwright-report
 storybook-static
-src/server/db/migrations
+src/server/core/db/migrations

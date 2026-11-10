@@ -1,5 +1,4 @@
-import { makeLogoutHandler } from '@/server/auth/handlers';
-import { authDeps } from '@/server/auth/wiring';
+import { authDeps, makeLogoutHandler } from '@/server/modules/auth/http';
 
 export const dynamic = 'force-dynamic';
 export const POST = makeLogoutHandler(authDeps);

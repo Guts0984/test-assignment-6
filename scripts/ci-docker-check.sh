@@ -34,6 +34,24 @@ expect "anonymous /api/me is 401" "$(curl -s -o /dev/null -w '%{http_code}' "$BA
 expect "wrong password is 401" "$(api -o /dev/null -w '%{http_code}' -d '{"email":"ana@example.com","password":"wrong-pass"}' "$BASE/api/auth/login")" "401"
 expect "login is 200" "$(api -o /dev/null -w '%{http_code}' -d "{\"email\":\"ana@example.com\",\"password\":\"${SEED_USER_PASSWORD}\"}" "$BASE/api/auth/login")" "200"
 expect "/api/me returns Ana" "$(api "$BASE/api/me" | grep -o '"email":"[^"]*"')" '"email":"ana@example.com"'
+# --- events API on the seeded data
+FROM="$(sql "select to_char(date_trunc('hour', min(created_at) at time zone 'UTC'), 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') from users")"
+TO="$(sql "select to_char(date_trunc('hour', min(created_at) at time zone 'UTC') + interval '2 months', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') from users")"
+EXPECTED="$(sql "select count(*) from event_occurrences where during && tstzrange('$FROM', '$TO', '[)')")"
+GOT="$(api "$BASE/api/events?from=$FROM&to=$TO" | grep -o '"eventId"' | wc -l | tr -d ' ')"
+expect "GET /api/events returns every seeded occurrence of the window" "$GOT" "$EXPECTED"
+expect "50 rooms via the API" "$(api "$BASE/api/rooms" | grep -o '"floor"' | wc -l | tr -d ' ')" "50"
+ROOM="$(sql 'select id from rooms order by name limit 1')"
+BOOKING="{\"roomId\":\"$ROOM\",\"title\":\"CI booking\",\"startAt\":\"2031-05-05T09:00:00Z\",\"endAt\":\"2031-05-05T10:00:00Z\"}"
+expect "create a booking is 201" "$(api -o /dev/null -w '%{http_code}' -d "$BOOKING" "$BASE/api/events")" "201"
+CLASH="$(api -w ' %{http_code}' -d "$BOOKING" "$BASE/api/events")"
+expect "the same booking again is 409" "${CLASH##* }" "409"
+echo "$CLASH" | grep -q 'ROOM_CONFLICT' || fail "409 body has no ROOM_CONFLICT"
+echo "$CLASH" | grep -q 'CI booking' || fail "409 body does not name the blocking event"
+EVENT_ID="$(sql "select id from events where title = 'CI booking'")"
+expect "delete the booking is 200" "$(api -o /dev/null -w '%{http_code}' -X DELETE "$BASE/api/events/$EVENT_ID?version=1")" "200"
+expect "nothing left of it" "$(sql "select count(*) from events where title = 'CI booking'")" "0"
+
 expect "profile time zone change" "$(api -X PATCH -d '{"timezone":"Asia/Tokyo"}' "$BASE/api/me" | grep -o '"timezone":"[^"]*"')" '"timezone":"Asia/Tokyo"'
 expect "logout is 200" "$(api -o /dev/null -w '%{http_code}' -X POST "$BASE/api/auth/logout")" "200"
 expect "after logout /api/me is 401" "$(api -o /dev/null -w '%{http_code}' "$BASE/api/me")" "401"

@@ -24,7 +24,7 @@ export default defineConfig({
           name: 'integration',
           environment: 'node',
           include: ['src/**/*.int.test.ts'],
-          globalSetup: ['./src/server/db/global-setup.ts'],
+          globalSetup: ['./src/server/tools/testing/global-setup.ts'],
           // Tests share one database and truncate it; run files one by one.
           fileParallelism: false,
           testTimeout: 20_000,

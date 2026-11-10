@@ -21,10 +21,27 @@ src/
     rooms/
     a11y/                 # keyboard grid nav, live-region announcer
   shared/                 # ui (shadcn), lib, i18n, msw handlers, config
-  server/                 # db (drizzle schema/migrations/seed), services, sse bus, auth
+  server/                 # backend, see below
 ```
 
 Rules: features import only from `shared` and other features' public `index.ts`; enforced by ESLint boundaries.
+
+### Backend layout (`src/server`), enforced by ESLint boundaries
+
+```
+core/      generic infrastructure, knows no domain: env, http (response/body/origin), db (client, migrate,
+           columns, errors, transaction/runTx, advisory locks, migrations/)
+modules/   one folder per domain, two public entry points: index.ts (domain API, no web framework) and
+           http.ts (route handlers); schema.ts is also importable for foreign-key references
+  auth/    schema (users, sessions), password, session, guard (authorize), handlers/ (login, logout, me)
+  rooms/   schema, repository, handlers/list
+  events/  schema, dto, validation, repository (SQL), materialize, errors,
+           service/ (create, update, delete, series, persist, fields, extend-series), handlers/ (one file per endpoint),
+           tests/ (one file per concern + api.ts client)
+tools/     seed/, testing/ (db helpers, global setup, API harness), bootstrap.ts (container entrypoint)
+```
+
+core -> core/shared only; modules -> core, other modules (via index), shared; tools -> everything; app routes -> core, modules.
 
 ## Stages (each = commit)
 
@@ -93,3 +110,14 @@ See chat. Defaults used if unanswered are marked in README "Decisions".
 - CSRF: SameSite=Lax + Origin must match Host on mutating requests.
 - Known limitation (README): no login rate limiting; no sliding session expiry. Login UI comes with the calendar page (stage 10).
 - CI has a `docker` job running `scripts/ci-docker-check.sh` (clean `compose up`, seed counts, API smoke, restart does not re-seed).
+
+## Stage 4 notes (done)
+
+- API: `GET /api/rooms`, `GET /api/events?from&to&rooms` (expanded occurrences, max 124 days, within ±5 years), `POST /api/events`, `GET|PATCH|DELETE /api/events/:id`.
+- PATCH/DELETE: `version` required (409 `VERSION_CONFLICT` with `details.current`); recurring edits take `scope` = `this` | `following` | `all` plus `occurrenceStart`. Room clash -> 409 `ROOM_CONFLICT` with `details.blockers` (title, creator, times). Deadlocks (`40P01`/`40001`) are retried (4 attempts).
+- Series model: "only this" = exdate + detached event; "this and following" = old series gets UNTIL (wall-clock, 1s before), new series gets the rest (COUNT adjusted); "all" with a new time drops earlier "only this" edits. A series edit bumps the master `version`, so clients holding other occurrences of it will get a VERSION_CONFLICT and must refresh.
+- Finite series are fully materialized (max 1000 occurrences); open-ended ones to +12 months and extended on read (+6 months beyond the requested end); occurrences blocked by later bookings are skipped (ON CONFLICT DO NOTHING). Known limitation: an open-ended series can lose an occurrence to a booking made beyond its horizon.
+- Any signed-in user may edit any event (shared office calendar). Events are attributed to their creator; an "only this" detached event keeps the series creator.
+- Dates are sent/received as ISO instants with offset; `end` is validated in real time (DST gap safe). `tzid` defaults to the creator's profile zone.
+- Not yet: SSE (stage 5), `GET /api/users` for the attendee picker (stage 17).
+- Concurrency finding #2: racing bookings of one slot made Postgres detect deadlocks only after its 1s timeout, repeatedly (tests hung 9-20s, intermittently). Fix: writers take a per-room advisory lock (`locks.ts`, sorted order, transaction-scoped). The exclusion constraint remains the guarantee; the lock only makes writers queue. Stress tests (30 racers, room swaps, mixed storm) fail without it and pass in ~2s with it.

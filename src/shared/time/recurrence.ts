@@ -1,5 +1,5 @@
 import { Temporal } from '@js-temporal/polyfill';
-import { rrulestr } from 'rrule';
+import { RRule, rrulestr } from 'rrule';
 import { fromWallClock, parseInstant, wallClock } from './instant';
 
 /**
@@ -61,46 +61,113 @@ function occurrenceEnd(
  * Occurrences of an event that overlap the half-open window [from, to), sorted by start.
  * Works for non-recurring events too (returns the single occurrence if it overlaps).
  */
+type Prepared = {
+  firstStart: Temporal.Instant;
+  firstDuration: Temporal.Duration;
+  localStart: Temporal.PlainDateTime;
+  spanDays: number;
+  excluded: Set<number>;
+};
+
+function prepare(src: RecurringSource): Prepared {
+  const firstStart = parseInstant(src.startAt);
+  const firstEnd = parseInstant(src.endAt);
+  const localStart = wallClock(firstStart, src.tzid);
+  const localEnd = wallClock(firstEnd, src.tzid);
+  return {
+    firstStart,
+    firstDuration: firstEnd.since(firstStart),
+    localStart,
+    // All-day: number of local calendar days spanned (end is exclusive midnight).
+    spanDays: src.allDay ? localStart.toPlainDate().until(localEnd.toPlainDate()).days : 0,
+    excluded: new Set(src.exdates.map((e) => parseInstant(e).epochMilliseconds)),
+  };
+}
+
+function toOccurrences(src: RecurringSource, p: Prepared, floatingStarts: Date[]): Occurrence[] {
+  const result: Occurrence[] = [];
+  for (const f of floatingStarts) {
+    const start = fromWallClock(fromFloating(f), src.tzid);
+    if (p.excluded.has(start.epochMilliseconds)) continue;
+    result.push({ start, end: occurrenceEnd(src, start, p.spanDays, p.firstDuration) });
+  }
+  return result.sort((a, b) => Temporal.Instant.compare(a.start, b.start));
+}
+
+/**
+ * Occurrences of an event that overlap the half-open window [from, to), sorted by start.
+ * Works for non-recurring events too (returns the single occurrence if it overlaps).
+ */
 export function expandOccurrences(
   src: RecurringSource,
   from: Temporal.Instant,
   to: Temporal.Instant,
 ): Occurrence[] {
-  const firstStart = parseInstant(src.startAt);
-  const firstEnd = parseInstant(src.endAt);
-  const firstDuration = firstEnd.since(firstStart);
-  const localStart = wallClock(firstStart, src.tzid);
-  const localEnd = wallClock(firstEnd, src.tzid);
-  // All-day: number of local calendar days spanned (end is exclusive midnight).
-  const spanDays = src.allDay ? localStart.toPlainDate().until(localEnd.toPlainDate()).days : 0;
-
+  const p = prepare(src);
   const overlaps = (o: Occurrence) =>
     Temporal.Instant.compare(o.start, to) < 0 && Temporal.Instant.compare(o.end, from) > 0;
 
   if (!src.rrule) {
-    const single = { start: firstStart, end: firstEnd };
+    const single = { start: p.firstStart, end: parseInstant(src.endAt) };
     return overlaps(single) ? [single] : [];
   }
 
-  const excluded = new Set(src.exdates.map((e) => parseInstant(e).epochMilliseconds));
-  const rule = rrulestr(src.rrule, { dtstart: floating(localStart) });
-
+  const rule = rrulestr(src.rrule, { dtstart: floating(p.localStart) });
   // Query a generous wall-clock window (duration + 2 days of slack each side), then filter by
   // real instants. Slack covers zone offsets, DST shifts and occurrences that started before `from`.
   const slack = { days: 2 };
   const slackedFrom = wallClock(from, src.tzid)
-    .subtract(firstDuration.round({ largestUnit: 'hours' }))
-    .subtract(src.allDay ? { days: spanDays + 2 } : slack);
+    .subtract(p.firstDuration.round({ largestUnit: 'hours' }))
+    .subtract(src.allDay ? { days: p.spanDays + 2 } : slack);
   const slackedTo = wallClock(to, src.tzid).add(slack);
 
   const floatingStarts = rule.between(floating(slackedFrom), floating(slackedTo), true);
+  return toOccurrences(src, p, floatingStarts).filter(overlaps);
+}
 
-  const result: Occurrence[] = [];
-  for (const f of floatingStarts) {
-    const start = fromWallClock(fromFloating(f), src.tzid);
-    if (excluded.has(start.epochMilliseconds)) continue;
-    const occ = { start, end: occurrenceEnd(src, start, spanDays, firstDuration) };
-    if (overlaps(occ)) result.push(occ);
-  }
-  return result.sort((a, b) => Temporal.Instant.compare(a.start, b.start));
+/** True if the rule ends by itself (COUNT or UNTIL); open-ended rules are materialized lazily. */
+export function isFiniteRule(rrule: string): boolean {
+  const o = RRule.parseString(rrule);
+  return o.count != null || o.until != null;
+}
+
+/** Every occurrence of a non-recurring or FINITE recurring event. Throws for open-ended rules. */
+export function expandAll(src: RecurringSource): Occurrence[] {
+  const p = prepare(src);
+  if (!src.rrule) return [{ start: p.firstStart, end: parseInstant(src.endAt) }];
+  if (!isFiniteRule(src.rrule)) throw new Error('expandAll needs a rule with COUNT or UNTIL');
+  const rule = rrulestr(src.rrule, { dtstart: floating(p.localStart) });
+  return toOccurrences(src, p, rule.all());
+}
+
+/** Does the event's first occurrence start exactly at `startAt` (i.e. the rule matches its own start)? */
+export function startMatchesRule(src: RecurringSource): boolean {
+  if (!src.rrule) return true;
+  const start = parseInstant(src.startAt);
+  const first = expandOccurrences(
+    { ...src, exdates: [] },
+    start,
+    start.add({ milliseconds: 1 }),
+  )[0];
+  return first !== undefined && first.start.equals(start);
+}
+
+const ruleParts = (rrule: string) => rrule.split(';').filter(Boolean);
+const withoutKeys = (rrule: string, keys: string[]) =>
+  ruleParts(rrule).filter((p) => !keys.includes(p.split('=')[0] ?? ''));
+
+/** Same rule, but ending at (and including) the given wall-clock time. Replaces COUNT/UNTIL. */
+export function ruleWithUntil(rrule: string, until: Temporal.PlainDateTime): string {
+  const f = (n: number, w = 2) => String(n).padStart(w, '0');
+  const stamp = `${f(until.year, 4)}${f(until.month)}${f(until.day)}T${f(until.hour)}${f(until.minute)}${f(until.second)}Z`;
+  return [...withoutKeys(rrule, ['COUNT', 'UNTIL']), `UNTIL=${stamp}`].join(';');
+}
+
+/** Same rule limited to `count` occurrences. Replaces COUNT/UNTIL. */
+export function ruleWithCount(rrule: string, count: number): string {
+  return [...withoutKeys(rrule, ['COUNT', 'UNTIL']), `COUNT=${count}`].join(';');
+}
+
+export function ruleCount(rrule: string): number | null {
+  return RRule.parseString(rrule).count ?? null;
 }

@@ -1,5 +1,4 @@
-import { makeLoginHandler } from '@/server/auth/handlers';
-import { authDeps } from '@/server/auth/wiring';
+import { authDeps, makeLoginHandler } from '@/server/modules/auth/http';
 
 export const dynamic = 'force-dynamic';
 export const POST = makeLoginHandler(authDeps);

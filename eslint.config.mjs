@@ -12,7 +12,7 @@ export default tseslint.config(
       'storybook-static/**',
       'next-env.d.ts',
       'playwright-report/**',
-      'src/server/db/migrations/**',
+      'src/server/core/db/migrations/**',
     ],
   },
   js.configs.recommended,
@@ -51,13 +51,19 @@ export default tseslint.config(
     },
   },
   {
-    // Feature-based architecture boundaries.
+    // Architecture boundaries (frontend features and backend modules follow the same idea).
+    //
+    //   src/server/core     generic infrastructure (db, http, env). Knows no domain.
+    //   src/server/modules  one folder per domain (auth, rooms, events). Public API = index.ts.
+    //   src/server/tools    seed, test harness, container bootstrap: may use everything on the server.
     plugins: { boundaries },
     settings: {
       'boundaries/elements': [
         { type: 'app', pattern: 'src/app/**' },
         { type: 'feature', pattern: 'src/features/*', capture: ['name'] },
-        { type: 'server', pattern: 'src/server/**' },
+        { type: 'server-core', pattern: 'src/server/core/**' },
+        { type: 'server-module', pattern: 'src/server/modules/*', capture: ['name'] },
+        { type: 'server-tools', pattern: 'src/server/tools/**' },
         { type: 'shared', pattern: 'src/shared/**' },
       ],
     },
@@ -69,15 +75,31 @@ export default tseslint.config(
           policies: [
             {
               from: { element: { type: 'app' } },
-              allow: { to: { element: { type: ['app', 'feature', 'server', 'shared'] } } },
+              allow: {
+                to: {
+                  element: { type: ['app', 'feature', 'server-core', 'server-module', 'shared'] },
+                },
+              },
             },
             {
               from: { element: { type: 'feature' } },
               allow: { to: { element: { type: ['feature', 'shared'] } } },
             },
             {
-              from: { element: { type: 'server' } },
-              allow: { to: { element: { type: ['server', 'shared'] } } },
+              from: { element: { type: 'server-core' } },
+              allow: { to: { element: { type: ['server-core', 'shared'] } } },
+            },
+            {
+              from: { element: { type: 'server-module' } },
+              allow: { to: { element: { type: ['server-core', 'server-module', 'shared'] } } },
+            },
+            {
+              from: { element: { type: 'server-tools' } },
+              allow: {
+                to: {
+                  element: { type: ['server-core', 'server-module', 'server-tools', 'shared'] },
+                },
+              },
             },
             {
               from: { element: { type: 'shared' } },
@@ -86,19 +108,33 @@ export default tseslint.config(
           ],
         },
       ],
-      // Features expose a public API via index.ts; deep imports into another feature are forbidden.
       'no-restricted-imports': [
         'error',
         {
           patterns: [
             { group: ['@/features/*/*'], message: 'Import features through their index.ts only.' },
+            {
+              // `schema` is the one other public file: tables are referenced by foreign keys.
+              group: [
+                '@/server/modules/*/*',
+                '!@/server/modules/*/schema',
+                '!@/server/modules/*/http',
+              ],
+              message:
+                'Import a module through index.ts (domain API) or http.ts (route handlers); schema.ts for tables.',
+            },
           ],
         },
       ],
     },
   },
   {
-    files: ['**/*.test.ts', '**/*.test.tsx', 'e2e/**'],
-    rules: { 'no-restricted-syntax': 'off' },
+    // Tests may reach into anything: they test internals and use the shared test harness.
+    files: ['**/*.test.ts', '**/*.test.tsx', '**/tests/**', 'e2e/**'],
+    rules: {
+      'no-restricted-syntax': 'off',
+      'boundaries/dependencies': 'off',
+      'no-restricted-imports': 'off',
+    },
   },
 );

@@ -2,7 +2,16 @@
 import { Temporal } from '@js-temporal/polyfill';
 import { describe, expect, it } from 'vitest';
 import { parseInstant } from './instant';
-import { expandOccurrences, type RecurringSource } from './recurrence';
+import {
+  expandAll,
+  expandOccurrences,
+  isFiniteRule,
+  ruleCount,
+  ruleWithCount,
+  ruleWithUntil,
+  startMatchesRule,
+  type RecurringSource,
+} from './recurrence';
 
 const I = (s: string) => Temporal.Instant.from(s);
 const starts = (occ: { start: Temporal.Instant }[]) => occ.map((o) => o.start.toString());
@@ -289,5 +298,62 @@ describe('all-day events', () => {
     expect(o).toHaveLength(2);
     expect(starts(o)).toEqual(['2026-03-27T22:00:00Z', '2026-04-03T21:00:00Z']);
     expect(o[1]?.end.toString()).toBe('2026-04-06T21:00:00Z');
+  });
+});
+
+describe('series helpers', () => {
+  it('isFiniteRule: COUNT and UNTIL are finite, plain rules are not', () => {
+    expect(isFiniteRule('FREQ=WEEKLY;COUNT=3')).toBe(true);
+    expect(isFiniteRule('FREQ=WEEKLY;UNTIL=20270101T000000Z')).toBe(true);
+    expect(isFiniteRule('FREQ=WEEKLY;BYDAY=MO')).toBe(false);
+  });
+
+  it('expandAll returns every occurrence of a finite series and refuses an open-ended one', () => {
+    const o = expandAll(src({ rrule: 'FREQ=WEEKLY;BYDAY=MO;COUNT=6' }));
+    expect(o).toHaveLength(6);
+    expect(starts(o).at(-1)).toBe('2026-04-06T06:00:00Z');
+    expect(() => expandAll(src({}))).toThrow(/COUNT or UNTIL/);
+  });
+
+  it('expandAll honours exdates (COUNT still counts the removed one)', () => {
+    const o = expandAll(
+      src({ rrule: 'FREQ=WEEKLY;BYDAY=MO;COUNT=4', exdates: ['2026-03-09T07:00:00Z'] }),
+    );
+    expect(starts(o)).toEqual([
+      '2026-03-02T07:00:00Z',
+      '2026-03-16T07:00:00Z',
+      '2026-03-23T07:00:00Z',
+    ]);
+  });
+
+  it('startMatchesRule: dtstart must itself be an occurrence', () => {
+    expect(startMatchesRule(src({}))).toBe(true); // Monday, BYDAY=MO
+    expect(startMatchesRule(src({ rrule: 'FREQ=WEEKLY;BYDAY=TU' }))).toBe(false); // Monday start, Tuesday rule
+    expect(startMatchesRule(src({ rrule: null }))).toBe(true);
+    expect(
+      startMatchesRule(
+        src({
+          startAt: '2026-02-28T07:00:00Z',
+          endAt: '2026-02-28T08:00:00Z',
+          rrule: 'FREQ=MONTHLY;BYMONTHDAY=31',
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it('ruleWithUntil replaces COUNT/UNTIL and the series stops before the cut (wall-clock)', () => {
+    const cut = Temporal.PlainDateTime.from('2026-03-30T08:59:59'); // 1s before the 3rd-after occurrence 09:00 Kyiv
+    const rule = ruleWithUntil('FREQ=WEEKLY;BYDAY=MO;COUNT=50', cut);
+    expect(rule).toBe('FREQ=WEEKLY;BYDAY=MO;UNTIL=20260330T085959Z');
+    const o = expandAll(src({ rrule: rule }));
+    expect(starts(o).at(-1)).toBe('2026-03-23T07:00:00Z'); // 2026-03-30 09:00 is excluded
+  });
+
+  it('ruleWithCount replaces UNTIL and COUNT', () => {
+    expect(ruleWithCount('FREQ=DAILY;UNTIL=20270101T000000Z;INTERVAL=2', 5)).toBe(
+      'FREQ=DAILY;INTERVAL=2;COUNT=5',
+    );
+    expect(ruleCount('FREQ=DAILY;COUNT=7')).toBe(7);
+    expect(ruleCount('FREQ=DAILY')).toBeNull();
   });
 });

@@ -21,7 +21,7 @@
     "test:int": "vitest run --project integration",
     "db:generate": "drizzle-kit generate",
     "db:up": "docker compose up -d --wait postgres",
-    "build:bootstrap": "esbuild src/server/db/bootstrap.ts --bundle --platform=node --format=esm --target=node24 --outfile=dist/bootstrap.mjs --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\""
+    "build:bootstrap": "esbuild src/server/tools/bootstrap.ts --bundle --platform=node --format=esm --target=node24 --outfile=dist/bootstrap.mjs --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\""
   },
   "dependencies": {
     "@js-temporal/polyfill": "^0.5.1",

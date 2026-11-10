@@ -22,7 +22,7 @@ COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 # Migrations + seed: bundled script and the SQL it applies.
 COPY --from=build /app/dist/bootstrap.mjs ./dist/bootstrap.mjs
-COPY --from=build /app/src/server/db/migrations ./src/server/db/migrations
+COPY --from=build /app/src/server/core/db/migrations ./src/server/core/db/migrations
 USER node
 EXPOSE 3000
 # Idempotent: applies pending migrations, seeds only an empty database, then starts the server.

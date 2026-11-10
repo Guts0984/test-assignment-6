@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { EnvError, parseEnv } from './env';
+import { isEnvError, parseEnv, type EnvError } from './env';
 
 const secrets = {
   POSTGRES_PASSWORD: 'pw',
@@ -37,7 +37,7 @@ describe('parseEnv', () => {
       parseEnv({});
       expect.unreachable();
     } catch (e) {
-      expect(e).toBeInstanceOf(EnvError);
+      expect(isEnvError(e)).toBe(true);
       const issues = (e as EnvError).issues.join('\n');
       for (const k of Object.keys(secrets)) expect(issues).toContain(k);
     }
@@ -45,23 +45,25 @@ describe('parseEnv', () => {
 
   it('treats empty string as unset (falls back to default, still fails for secrets)', () => {
     expect(parseEnv({ ...secrets, POSTGRES_PORT: '' }).POSTGRES_PORT).toBe(5432);
-    expect(() => parseEnv({ ...secrets, SESSION_SECRET: '' })).toThrow(EnvError);
+    expect(() => parseEnv({ ...secrets, SESSION_SECRET: '' })).toThrow(/Invalid environment/);
   });
 
   it('coerces numbers and rejects out-of-range / non-numeric values', () => {
     expect(parseEnv({ ...secrets, POSTGRES_PORT: '6543' }).POSTGRES_PORT).toBe(6543);
-    expect(() => parseEnv({ ...secrets, POSTGRES_PORT: '70000' })).toThrow(EnvError);
-    expect(() => parseEnv({ ...secrets, POSTGRES_PORT: 'abc' })).toThrow(EnvError);
-    expect(() => parseEnv({ ...secrets, SESSION_TTL_DAYS: '0' })).toThrow(EnvError);
+    expect(() => parseEnv({ ...secrets, POSTGRES_PORT: '70000' })).toThrow(/Invalid environment/);
+    expect(() => parseEnv({ ...secrets, POSTGRES_PORT: 'abc' })).toThrow(/Invalid environment/);
+    expect(() => parseEnv({ ...secrets, SESSION_TTL_DAYS: '0' })).toThrow(/Invalid environment/);
   });
 
   it('rejects a short session secret and a non-postgres URL', () => {
-    expect(() => parseEnv({ ...secrets, SESSION_SECRET: 'short' })).toThrow(EnvError);
-    expect(() => parseEnv({ ...secrets, DATABASE_URL: 'mysql://x' })).toThrow(EnvError);
+    expect(() => parseEnv({ ...secrets, SESSION_SECRET: 'short' })).toThrow(/Invalid environment/);
+    expect(() => parseEnv({ ...secrets, DATABASE_URL: 'mysql://x' })).toThrow(
+      /Invalid environment/,
+    );
   });
 
   it('rejects an unsupported default locale', () => {
-    expect(() => parseEnv({ ...secrets, DEFAULT_LOCALE: 'de' })).toThrow(EnvError);
+    expect(() => parseEnv({ ...secrets, DEFAULT_LOCALE: 'de' })).toThrow(/Invalid environment/);
   });
 });
 

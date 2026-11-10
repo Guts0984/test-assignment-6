@@ -20,21 +20,22 @@ const schema = z.object({
 
 export type Env = z.infer<typeof schema>;
 
-export class EnvError extends Error {
-  constructor(public readonly issues: string[]) {
-    super(
-      `Invalid environment:\n${issues.map((i) => `  - ${i}`).join('\n')}\nCopy .env.example to .env.`,
-    );
-    this.name = 'EnvError';
-  }
+export type EnvError = Error & { name: 'EnvError'; issues: string[] };
+
+export function createEnvError(issues: string[]): EnvError {
+  const message = `Invalid environment:\n${issues.map((i) => `  - ${i}`).join('\n')}\nCopy .env.example to .env.`;
+  return Object.assign(new Error(message), { name: 'EnvError' as const, issues });
 }
+
+export const isEnvError = (e: unknown): e is EnvError =>
+  e instanceof Error && e.name === 'EnvError';
 
 export function parseEnv(source: Record<string, string | undefined>): Env {
   // Treat empty strings as unset so `FOO=` falls back to defaults.
   const cleaned = Object.fromEntries(Object.entries(source).filter(([, v]) => v !== ''));
   const result = schema.safeParse(cleaned);
   if (!result.success) {
-    throw new EnvError(result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`));
+    throw createEnvError(result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`));
   }
   return result.data;
 }

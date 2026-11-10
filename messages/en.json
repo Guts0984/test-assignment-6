@@ -202,6 +202,7 @@
     "intervalWeekly": "{count, plural, one {# week} other {# weeks}}",
     "intervalMonthly": "{count, plural, one {# month} other {# months}}",
     "onDays": "On",
+    "startDayLocked": "The first occurrence falls on this day, so it is always part of the rule",
     "ends": "Ends",
     "endsNever": "Never",
     "endsOn": "On date",

@@ -74,8 +74,56 @@ jobs:
           pnpm test-storybook
 
   e2e:
-    # One real stack (docker compose: migrations + seed run by the web container), then, against that
-    # same stack: e2e three times in a row in three browsers, screenshot tests, bundle size, Lighthouse.
+    # One job per browser, each with its own docker-compose stack (migrations + seed run by the web
+    # container). Against that stack: the e2e suite three times in a row without a restart.
+    name: e2e (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: cp .env.example .env
+      - name: Start the stack
+        run: |
+          docker compose up --build -d
+          for _ in $(seq 1 90); do
+            [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/login || true)" = "200" ] && exit 0
+            sleep 2
+          done
+          docker compose logs --no-color web | tail -60
+          exit 1
+      - name: e2e (${{ matrix.browser }}), 3 runs in a row
+        run: |
+          for run in 1 2 3; do
+            echo "::group::e2e run $run"
+            docker run --rm --network host --ipc=host -v "$PWD":/work -w /work \
+              -e BASE_URL=http://localhost:3000 -e CI=1 "$PLAYWRIGHT_IMAGE" \
+              npx playwright test --project=${{ matrix.browser }}
+            echo "::endgroup::"
+          done
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-${{ matrix.browser }}
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+      - if: failure()
+        run: docker compose logs --no-color web | tail -100
+      - if: always()
+        run: docker compose down -v
+
+  screenshots:
+    # 3 browsers x light/dark, inside the image the baselines were made in.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -95,37 +143,54 @@ jobs:
           done
           docker compose logs --no-color web | tail -60
           exit 1
-      - name: e2e, 3 runs in a row, Chromium + Firefox + WebKit
-        run: |
-          for run in 1 2 3; do
-            echo "::group::e2e run $run"
-            docker run --rm --network host --ipc=host -v "$PWD":/work -w /work \
-              -e BASE_URL=http://localhost:3000 -e CI=1 "$PLAYWRIGHT_IMAGE" \
-              npx playwright test
-            echo "::endgroup::"
-          done
-      - name: Screenshot tests (3 browsers x light/dark)
+      - name: Screenshot tests
         run: |
           docker run --rm --network host --ipc=host -v "$PWD":/work -w /work \
             -e BASE_URL=http://localhost:3000 -e CI=1 "$PLAYWRIGHT_IMAGE" \
             npx playwright test -c playwright.screenshots.config.ts
-      - name: First-load JavaScript budget (<= 200 KB gzip)
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+      - if: always()
+        run: docker compose down -v
+
+  performance:
+    # Bundle size and Lighthouse budgets against the production image.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: cp .env.example .env
+      - name: Start the stack
         run: |
-          pnpm exec playwright install --with-deps chromium
-          node scripts/measure-js.mjs http://localhost:3000 --budget=200
+          docker compose up --build -d
+          for _ in $(seq 1 90); do
+            [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/login || true)" = "200" ] && exit 0
+            sleep 2
+          done
+          docker compose logs --no-color web | tail -60
+          exit 1
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: First-load JavaScript budget (<= 200 KB gzip)
+        run: node scripts/measure-js.mjs http://localhost:3000 --budget=200
       - name: Lighthouse CI (performance >= 90, accessibility = 100)
         run: node scripts/lighthouse.mjs http://localhost:3000
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-reports
-          path: |
-            playwright-report
-            test-results
-            .lighthouseci
+          name: lighthouse
+          path: .lighthouseci
           if-no-files-found: ignore
-      - if: failure()
-        run: docker compose logs --no-color web | tail -100
       - if: always()
         run: docker compose down -v
 

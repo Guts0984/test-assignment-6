@@ -16,7 +16,7 @@ docker compose up --build
 ```
 
 Open <http://localhost:3000>. The `web` container applies the migrations and seeds the database **once**
-(3 users, 50 rooms, ~2 000 meetings in the next two months, recurring series, DST edge cases); restarting does
+(3 users, 50 rooms, 2 000 meetings in the next two months, recurring series, and meetings placed on the next real clock changes of Kyiv and New York — computed from the time zone database, so they are ahead of you whenever you seed; a window that starts today cannot itself contain one except in March/October–November); restarting does
 not seed again. Sign in with `ana@example.com` (Kyiv), `bob@example.com` (New York) or `kenji@example.com`
 (Tokyo); the password is `SEED_USER_PASSWORD` from `.env` (`demo1234` by default).
 
@@ -54,9 +54,11 @@ docker run --rm --network host --ipc=host -v "$PWD":/work -w /work -e BASE_URL=h
 
 WebKit does not launch on every Linux host; running the whole e2e suite in the same image works everywhere.
 
-CI (`.github/workflows/ci.yml`): `static` (lint, types, formatting, unit), `integration`, `storybook` (build +
-interaction tests), `e2e` (one docker-compose stack; e2e three times in a row in three browsers, screenshots,
-JS budget, Lighthouse), `docker` (clean `compose up` smoke test: migrations, one-time seed, API, SSE, restart).
+CI (`.github/workflows/ci.yml`), jobs that run in parallel: `static` (lint, types, formatting, unit), `integration`,
+`storybook` (build + interaction tests), `e2e` (one job per browser — chromium, firefox, webkit — each with its
+own docker-compose stack, the suite three times in a row without a restart), `screenshots` (3 browsers ×
+light/dark), `performance` (JS budget + Lighthouse), `docker` (clean `compose up` smoke test: migrations,
+one-time seed, API, SSE, restart).
 
 ## Architecture
 

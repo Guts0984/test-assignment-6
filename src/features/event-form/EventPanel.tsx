@@ -22,6 +22,7 @@ import {
   type BuildContext,
   type Errors,
   type FormValues,
+  startWeekday,
 } from './form-model';
 import { formSchema } from './schema';
 import { useFreeRooms } from './useFreeRooms';
@@ -390,6 +391,7 @@ export default function EventPanel(props: Props) {
                   control={control}
                   kind={values.repeat.kind}
                   weekStartFirst={props.weekStart}
+                  startDay={startWeekday(values.startDate)}
                 />
               </Suspense>
             )}

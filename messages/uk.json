@@ -202,6 +202,7 @@
     "intervalWeekly": "{count, plural, one {# тиждень} few {# тижні} many {# тижнів} other {# тижня}}",
     "intervalMonthly": "{count, plural, one {# місяць} few {# місяці} many {# місяців} other {# місяця}}",
     "onDays": "У дні",
+    "startDayLocked": "Перше повторення припадає на цей день, тому він завжди входить у правило",
     "ends": "Закінчується",
     "endsNever": "Ніколи",
     "endsOn": "Дата",

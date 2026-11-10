@@ -346,7 +346,7 @@ export function TimeGrid({
         )}
 
         {/* time axes + columns */}
-        <div className="bg-surface sticky left-0 z-10" style={{ left: 0 }}>
+        <div data-testid="time-axis" className="bg-surface sticky left-0 z-10" style={{ left: 0 }}>
           {first && <HourLabels tz={tz} date={first} secondary={null} />}
         </div>
         {tz2 && (

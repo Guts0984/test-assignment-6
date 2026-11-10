@@ -48,10 +48,32 @@ const at = (date: string, time: string, tzid: string): string =>
 const mins = (start: string, minutes: number): string =>
   Temporal.Instant.from(start).add({ minutes }).toString();
 
+type Transition = { date: string; gap: boolean };
+
+/**
+ * The next `count` clock changes of `tzid` after `from`, from the time zone database. `gap` = clocks
+ * jump forward (a local time does not exist), otherwise they fall back (a local time happens twice).
+ */
+function nextTransitions(tzid: string, from: Temporal.Instant, count: number): Transition[] {
+  const out: Transition[] = [];
+  let zoned = from.toZonedDateTimeISO(tzid);
+  for (let i = 0; i < count; i += 1) {
+    const next = zoned.getTimeZoneTransition('next');
+    if (!next) break;
+    out.push({
+      date: next.toPlainDate().toString(),
+      gap: next.offsetNanoseconds > zoned.offsetNanoseconds,
+    });
+    zoned = next;
+  }
+  return out;
+}
+
 /**
  * Deterministic seed plan for a given `now`: 3 users, 50 rooms and exactly
  * TARGET_OCCURRENCES occurrences inside the next two months (recurring series count by
- * occurrence), plus fixed fixtures that sit on real DST transitions of 2026-2027.
+ * occurrence), plus fixtures placed on the NEXT real DST transitions of Kyiv and New York after `now`, so whenever the
+ * seed runs there are meetings sitting exactly on a clock change.
  * Pure: no I/O. No two occurrences overlap in one room (the DB would reject them).
  */
 export function buildPlan(now: Temporal.Instant): Plan {
@@ -123,7 +145,10 @@ export function buildPlan(now: Temporal.Instant): Plan {
     if (!tryAdd(d, { force: true })) throw new Error(`seed fixture does not fit: ${d.title}`);
   };
 
-  // ---- Fixtures: real DST transitions (Kyiv 2026-03-29 / 10-25, New York 2026-03-08 / 11-01) ----
+  // Series that started in the past run on for another 14 months, whenever the seed is run.
+  const until = `${windowStart.toZonedDateTimeISO('UTC').add({ months: 14 }).toPlainDate().toString().replaceAll('-', '')}T235959Z`;
+
+  // ---- Fixtures: the next DST transitions of Kyiv and New York (placed from the zone database) ----
   const planning = base({
     roomId: room(0),
     creatorId: ana.id,
@@ -131,7 +156,7 @@ export function buildPlan(now: Temporal.Instant): Plan {
     tzid: 'Europe/Kyiv',
     startAt: at('2026-03-02', '09:00', 'Europe/Kyiv'),
     endAt: at('2026-03-02', '10:00', 'Europe/Kyiv'),
-    rrule: 'FREQ=WEEKLY;BYDAY=MO;UNTIL=20270430T235959Z',
+    rrule: `FREQ=WEEKLY;BYDAY=MO;UNTIL=${until}`,
   });
   // One occurrence in the window is edited "only this": exdate + a detached event.
   const upcoming = occurrencesOf(planning, windowEnd).filter((o) => isStartInWindow(o.start));
@@ -161,51 +186,39 @@ export function buildPlan(now: Temporal.Instant): Plan {
       tzid: 'America/New_York',
       startAt: at('2026-03-02', '08:30', 'America/New_York'),
       endAt: at('2026-03-02', '09:00', 'America/New_York'),
-      rrule: `FREQ=DAILY;BYDAY=${DAYS.join(',')};UNTIL=20270331T235959Z`,
+      rrule: `FREQ=DAILY;BYDAY=${DAYS.join(',')};UNTIL=${until}`,
     }),
   );
-  mustAdd(
-    base({
-      roomId: room(3),
-      creatorId: ana.id,
-      title: 'Night deploy (gap)',
-      tzid: 'Europe/Kyiv',
-      startAt: at('2026-03-27', '03:30', 'Europe/Kyiv'),
-      endAt: at('2026-03-27', '04:30', 'Europe/Kyiv'),
-      rrule: 'FREQ=DAILY;COUNT=5',
-    }),
-  );
-  mustAdd(
-    base({
-      roomId: room(3),
-      creatorId: ana.id,
-      title: 'Night deploy (overlap)',
-      tzid: 'Europe/Kyiv',
-      startAt: at('2026-10-23', '03:30', 'Europe/Kyiv'),
-      endAt: at('2026-10-23', '04:30', 'Europe/Kyiv'),
-      rrule: 'FREQ=DAILY;COUNT=5',
-    }),
-  );
-  mustAdd(
-    base({
-      roomId: room(4),
-      creatorId: bob.id,
-      title: 'Spring-forward call',
-      tzid: 'America/New_York',
-      startAt: at('2026-03-08', '02:30', 'America/New_York'),
-      endAt: mins(at('2026-03-08', '02:30', 'America/New_York'), 60),
-    }),
-  );
-  mustAdd(
-    base({
-      roomId: room(4),
-      creatorId: bob.id,
-      title: 'Fall-back call',
-      tzid: 'America/New_York',
-      startAt: at('2026-11-01', '01:30', 'America/New_York'),
-      endAt: mins(at('2026-11-01', '01:30', 'America/New_York'), 60),
-    }),
-  );
+  for (const t of nextTransitions('Europe/Kyiv', windowStart, 2)) {
+    // A nightly job at 03:30 on the five nights around the change: 03:30 does not exist on the "gap"
+    // night and happens twice on the "overlap" night.
+    const first = Temporal.PlainDate.from(t.date).subtract({ days: 2 }).toString();
+    mustAdd(
+      base({
+        roomId: room(3),
+        creatorId: ana.id,
+        title: `Night deploy (${t.gap ? 'gap' : 'overlap'})`,
+        tzid: 'Europe/Kyiv',
+        startAt: at(first, '03:30', 'Europe/Kyiv'),
+        endAt: at(first, '04:30', 'Europe/Kyiv'),
+        rrule: 'FREQ=DAILY;COUNT=5',
+      }),
+    );
+  }
+  for (const t of nextTransitions('America/New_York', windowStart, 2)) {
+    // 02:30 does not exist on the spring night; 01:30 happens twice on the autumn night.
+    const time = t.gap ? '02:30' : '01:30';
+    mustAdd(
+      base({
+        roomId: room(4),
+        creatorId: bob.id,
+        title: t.gap ? 'Spring-forward call' : 'Fall-back call',
+        tzid: 'America/New_York',
+        startAt: at(t.date, time, 'America/New_York'),
+        endAt: mins(at(t.date, time, 'America/New_York'), 60),
+      }),
+    );
+  }
   mustAdd(
     base({
       roomId: room(5),
@@ -214,7 +227,7 @@ export function buildPlan(now: Temporal.Instant): Plan {
       tzid: 'Asia/Tokyo',
       startAt: at('2026-03-06', '10:00', 'Asia/Tokyo'),
       endAt: at('2026-03-06', '11:00', 'Asia/Tokyo'),
-      rrule: 'FREQ=MONTHLY;BYDAY=1FR;UNTIL=20270630T235959Z',
+      rrule: `FREQ=MONTHLY;BYDAY=1FR;UNTIL=${until}`,
     }),
   );
   // Open-ended series: materialized one year ahead; stage 4 extends the horizon.

@@ -84,6 +84,50 @@ describe('seed plan', () => {
     }
   });
 
+  it('puts meetings on the NEXT real clock changes whenever the seed runs (not on fixed old dates)', () => {
+    const offsetOn = (date: string, tz: string) =>
+      Temporal.PlainDateTime.from(`${date}T12:00`).toZonedDateTime(tz).offsetNanoseconds;
+    // A day has a clock change if the offset differs between the noon before and the noon after it.
+    const hasChange = (instant: string, tz: string) => {
+      const day = Temporal.Instant.from(instant).toZonedDateTimeISO(tz).toPlainDate();
+      return (
+        offsetOn(day.subtract({ days: 1 }).toString(), tz) !==
+        offsetOn(day.add({ days: 1 }).toString(), tz)
+      );
+    };
+    const nowValues = [
+      '2026-11-10T14:30:00Z',
+      '2027-01-20T09:00:00Z',
+      '2027-03-05T00:00:00Z',
+      '2027-08-15T12:00:00Z',
+    ];
+    for (const iso of nowValues) {
+      const now = Temporal.Instant.from(iso);
+      const p = buildPlan(now);
+      const named = (t: string) => p.events.filter((e) => e.title === t);
+      for (const title of ['Spring-forward call', 'Fall-back call']) {
+        const [ev] = named(title);
+        expect(ev, `${title} at ${iso}`).toBeDefined();
+        expect(hasChange(ev!.startAt, 'America/New_York'), `${title} at ${iso}`).toBe(true);
+        expect(
+          Temporal.Instant.compare(parseInstant(ev!.startAt), now),
+          `${title} is ahead of now`,
+        ).toBeGreaterThan(0);
+      }
+      for (const title of ['Night deploy (gap)', 'Night deploy (overlap)']) {
+        const [ev] = named(title);
+        expect(ev, `${title} at ${iso}`).toBeDefined();
+        const nights = occurrencesOf(ev!, p.windowEnd.add({ hours: 24 * 400 })).map((o) =>
+          o.start.toString(),
+        );
+        expect(
+          nights.some((n) => hasChange(n, 'Europe/Kyiv')),
+          `${title} spans a clock change at ${iso}`,
+        ).toBe(true);
+      }
+    }
+  });
+
   it('contains every kind of event the assignment mentions', () => {
     expect(plan.events.some((e) => e.rrule)).toBe(true);
     expect(plan.events.some((e) => e.allDay && e.ranges.length === 1)).toBe(true);

@@ -3,7 +3,7 @@
 import { useTranslations } from 'next-intl';
 import type { Control } from 'react-hook-form';
 import { Controller } from 'react-hook-form';
-import { WEEKDAY_CODES, type FormValues, type RepeatKind } from './form-model';
+import { WEEKDAY_CODES, type FormValues, type RepeatKind, type WeekdayCode } from './form-model';
 
 const field = 'rounded-md border border-border bg-surface px-2 py-1.5 text-sm';
 
@@ -15,10 +15,13 @@ export default function RecurrenceEditor({
   control,
   kind,
   weekStartFirst,
+  startDay,
 }: {
   control: Control<FormValues>;
   kind: RepeatKind;
   weekStartFirst: number;
+  /** The weekday of the first occurrence: always part of a weekly rule, so it is shown on and locked. */
+  startDay?: WeekdayCode;
 }) {
   const t = useTranslations('form');
   const tw = useTranslations('weekdaysCode');
@@ -64,16 +67,19 @@ export default function RecurrenceEditor({
               <legend className="mb-1">{t('onDays')}</legend>
               <div className="flex flex-wrap gap-1">
                 {order.map((code) => {
-                  const on = f.value.includes(code);
+                  const locked = code === startDay;
+                  const on = locked || f.value.includes(code);
                   return (
                     <label
                       key={code}
-                      className={`cursor-pointer rounded-md border px-2 py-1 ${on ? 'border-primary bg-primary text-primary-foreground' : 'border-border'}`}
+                      title={locked ? t('startDayLocked') : undefined}
+                      className={`rounded-md border px-2 py-1 ${locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'} ${on ? 'border-primary bg-primary text-primary-foreground' : 'border-border'}`}
                     >
                       <input
                         type="checkbox"
                         className="sr-only"
                         checked={on}
+                        disabled={locked}
                         onChange={() =>
                           f.onChange(on ? f.value.filter((d) => d !== code) : [...f.value, code])
                         }
@@ -136,7 +142,7 @@ export default function RecurrenceEditor({
                         count: e.target.value === '' ? NaN : Number(e.target.value),
                       })
                     }
-                    data-testid="end-count"
+                    data-testid="end-count-value"
                   />
                 )}
               </label>

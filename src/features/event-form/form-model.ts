@@ -66,6 +66,12 @@ export const noRepeat: Repeat = { kind: 'none', interval: 1, weekdays: [], end: 
 export const MAX_COUNT = 1000;
 
 const pad = (n: number, w = 2) => String(n).padStart(w, '0');
+/** The weekday of a `YYYY-MM-DD` start date typed in the form; a weekly rule always includes it. */
+export function startWeekday(startDate: string): WeekdayCode | undefined {
+  const day = parseCivil(startDate);
+  return day ? weekdayOf(day) : undefined;
+}
+
 const weekdayOf = (c: Civil): WeekdayCode => WEEKDAY_CODES[dayOfWeek(c) - 1] as WeekdayCode;
 
 /**

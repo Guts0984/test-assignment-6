@@ -21,6 +21,7 @@ export default async function setup(): Promise<void> {
         `Integration tests need Postgres, but it is not reachable (${code}). ` +
           'Start it with `pnpm db:up` (requires .env: cp .env.example .env). ' +
           'Unit tests only: `pnpm test:unit`.',
+        { cause: error },
       );
     }
     throw error;

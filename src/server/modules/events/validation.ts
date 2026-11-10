@@ -50,6 +50,7 @@ const fields = {
 };
 
 export const createEventSchema = z.strictObject({
+  id: uuid.optional(),
   roomId: fields.roomId,
   title: fields.title,
   description: fields.description.default(''),

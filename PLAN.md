@@ -1,8 +1,36 @@
 # PLAN — Room booking calendar
 
-Source of truth: `test-assignment-6.md`. Where the assignment says something, we do exactly that.
-Workflow: one stage = one small, reviewable commit (CI green on each). Tests are written to find bugs
-(edge cases, DST boundaries, races), not to inflate coverage.
+Source of truth: `test-assignment-6.md` (kept in ~/Downloads). Assignment is priority #1: where it says something, do exactly that.
+Working rules (from the user): no git commits by me; functional style, no classes; tests must find real bugs (mutation-check important ones);
+never regress; keep going without waiting for review; decide ambiguities myself and record them in README.
+
+## STATUS / REMAINING WORK (assignment-driven; tick as done)
+
+Backend done: schema+exclusion constraint, seed, auth, events API (versions, 409s, series scopes), docker, CI(docker job).
+
+- [x] R1 Realtime backend: SSE stream (+ Last-Event-ID replay, origin id for echo suppression) and `GET /api/users` (participants)
+- [x] R2 Frontend foundation: deps, providers (Query, intl by PROFILE locale), login page, API client, theme; bundle-size spike (200KB gz!)
+- [x] R3 Calendar domain logic, pure + unit tests: grid math (15 min snap), overlap layout, ranges/week start by locale, month cells "+N", locale time format/parse, multi-day/all-day segmentation in user tz
+- [x] R4 Views with SSR in user tz: week, day (<=50 room columns, sticky time), month, list (infinite); URL state (view/date/rooms), back/forward; 2nd tz column; now-line
+- [x] R5 Interactions: drag-create, move (days+rooms), resize; mouse+touch+keyboard; screen-reader announcements; no full-grid re-render
+- [x] R6 Mutations: optimistic + rollback w/ clear message (who blocks), undo/redo (20, server-synced), rapid actions don't desync
+- [x] R7 Offline: IndexedDB queue (survives reload, ordered replay), conflict screen (mine vs server, diff, lazy), status indicator
+- [x] R8 SSE client: others' changes appear live, own echo no flicker
+- [x] R9 Form side panel (RHF+Zod), recurrence editor (lazy), free-room suggestions (debounce, stale-guard), unsaved-changes guard, focus mgmt
+- [x] R10 Storybook + MSW (shared handlers) + interaction tests (drag, form)
+- [x] R11 Playwright e2e (listed in §9) x3 runs, screenshots 3 browsers light/dark, axe on all views
+- [x] R12 Performance (178 KB gz first load; e2e/perf.spec.ts INP + frames; Lighthouse CI via scripts/lighthouse.mjs): budgets, measurements, Lighthouse CI (perf>=90, a11y=100)
+- [x] R13 CI complete (lint, types, unit, storybook build+tests, e2e, screenshots, lhci), README (§10)
+
+### Decisions forced by measurement (record in README)
+
+- Measured gz JS: trivial Next16+React19+next-intl page = 145 KB (modern browser, excluding the noModule polyfill). Temporal polyfill = 47 KB, zod = 92 KB, react-query 14, react-hook-form 16, use-intl 15, rrule 14, zustand 4, zod/mini 4. Budget is 200 KB => Temporal/zod/rrule can NOT be in the first load.
+- Client + shared calendar logic use `src/shared/zoned` (tiny Intl-based zone engine, numbers/strings only, no `Date`), differentially tested against Temporal (the oracle) incl. DST gaps/overlaps. Temporal stays server-side (RRULE expansion, validation) and in tests.
+- Client-side form validation uses `zod/mini`; heavy UI (form panel, recurrence editor, conflict screen) is lazy-loaded. RRULE strings are built by hand on the client (no `rrule` lib in the browser).
+- i18n: locale comes from the user PROFILE (cookie session), not from the URL. URL holds view/date/rooms only.
+- API contract types live in `src/shared/contracts` (server imports them from shared; frontend imports them too).
+
+---
 
 ## Architecture (frontend: feature-based)
 

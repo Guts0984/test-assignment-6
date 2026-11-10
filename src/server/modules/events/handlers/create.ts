@@ -3,7 +3,7 @@ import { parseBody } from '@/server/core/http';
 import { authorize, isDenied, type AuthDeps } from '@/server/modules/auth/http';
 import { createEvent } from '../service';
 import { createEventSchema } from '../validation';
-import { respond } from './shared';
+import { respondAndPublish } from './shared';
 
 export const makeCreateEventHandler =
   (deps: AuthDeps) =>
@@ -12,5 +12,5 @@ export const makeCreateEventHandler =
     if (isDenied(ctx)) return ctx;
     const body = await parseBody(req, createEventSchema);
     if (!body.ok) return body.response;
-    return respond(await createEvent(deps.db(), ctx, body.data), 201);
+    return respondAndPublish(req, await createEvent(deps.db(), ctx, body.data), 201);
   };

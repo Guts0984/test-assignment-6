@@ -2,3 +2,5 @@
 export type { EventDto, OccurrenceDto } from './dto';
 export { isOpenEnded, occurrencesOf, occurrenceRanges } from './materialize';
 export { eventAttendees, eventOccurrences, events } from './schema';
+export { listOccurrences } from './repository';
+export { extendOpenSeries } from './service/extend-series';

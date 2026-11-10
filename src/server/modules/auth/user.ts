@@ -1,15 +1,9 @@
 import { eq, sql } from 'drizzle-orm';
 import type { Db } from '@/server/core/db';
+import type { DirectoryUser, PublicUser } from '@/shared/contracts';
 import { users } from './schema';
 
-/** What the API (and the browser) may know about a user. Never includes the password hash. */
-export type PublicUser = {
-  id: string;
-  email: string;
-  name: string;
-  timezone: string;
-  locale: string;
-};
+export type { PublicUser };
 
 export const toPublicUser = (u: PublicUser): PublicUser => ({
   id: u.id,
@@ -37,3 +31,12 @@ export async function updateProfile(
   const [row] = await db.update(users).set(changes).where(eq(users.id, userId)).returning();
   return row ? toPublicUser(row) : null;
 }
+
+export type { DirectoryUser };
+
+/** Everyone in the office, for the participants picker. */
+export const listUsers = (db: Db): Promise<DirectoryUser[]> =>
+  db
+    .select({ id: users.id, name: users.name, email: users.email, timezone: users.timezone })
+    .from(users)
+    .orderBy(users.name);

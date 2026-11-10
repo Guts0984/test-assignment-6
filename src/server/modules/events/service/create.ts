@@ -1,5 +1,7 @@
 import type { Db } from '@/server/core/db';
 import type { Result } from '@/server/core/db';
+import { eq } from 'drizzle-orm';
+import { abort } from '@/server/core/db';
 import { events } from '../schema';
 import type { EventRow } from '../dto';
 import type { CreateEventInput } from '../validation';
@@ -26,9 +28,22 @@ export function createEvent(
     assertShape(asSource(fields));
     await lockRooms(tx, [fields.roomId]);
 
+    // A client-chosen id makes the request idempotent: if that event already exists (a retry after a
+    // lost response, or an offline replay) answer with it instead of creating a second one.
+    if (input.id) {
+      const [existing] = await tx.select().from(events).where(eq(events.id, input.id));
+      if (existing) {
+        if (existing.creatorId !== ctx.user.id) {
+          return abort(400, 'VALIDATION', [{ path: 'id', message: 'is already used' }]);
+        }
+        return { ...(await finish(tx, [existing.id])), replayed: true };
+      }
+    }
+
     const [row] = await tx
       .insert(events)
       .values({
+        ...(input.id ? { id: input.id } : {}),
         ...fields,
         creatorId: ctx.user.id,
         materializedUntil: horizonColumn(asSource(fields), ctx.now, null),

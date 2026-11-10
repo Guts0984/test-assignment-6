@@ -20,6 +20,8 @@ ENV NODE_ENV=production \
 WORKDIR /app
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
+# Static files (the offline service worker /sw.js lives here): standalone output does not include them.
+COPY --from=build /app/public ./public
 # Migrations + seed: bundled script and the SQL it applies.
 COPY --from=build /app/dist/bootstrap.mjs ./dist/bootstrap.mjs
 COPY --from=build /app/src/server/core/db/migrations ./src/server/core/db/migrations

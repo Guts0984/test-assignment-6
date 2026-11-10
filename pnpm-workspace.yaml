@@ -2,3 +2,10 @@ allowBuilds:
   '@parcel/watcher': false
   '@swc/core': false
   esbuild: true
+minimumReleaseAgeExclude:
+  - '@storybook/addon-a11y@10.6.7'
+  - '@storybook/builder-vite@10.6.7'
+  - '@storybook/react-dom-shim@10.6.7'
+  - '@storybook/react-vite@10.6.7'
+  - '@storybook/react@10.6.7'
+  - storybook@10.6.7

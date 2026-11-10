@@ -1,47 +1,187 @@
 @import 'tailwindcss';
 
-@custom-variant dark (&:where(.dark, .dark *));
-
+/*
+ * Design tokens. Light is the default; dark applies when the user chose it (data-theme="dark") or, for
+ * "system", when the OS asks for it. Colours are only ever referenced through these variables, so a
+ * component never needs a dark: variant.
+ */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.2 0 0);
-  --muted: oklch(0.96 0 0);
-  --muted-foreground: oklch(0.45 0 0);
-  --border: oklch(0.9 0 0);
-  --primary: oklch(0.45 0.18 260);
-  --primary-foreground: oklch(1 0 0);
+  --background: oklch(0.99 0 0);
+  --surface: oklch(1 0 0);
+  --foreground: oklch(0.22 0.01 260);
+  --muted: oklch(0.96 0.005 260);
+  --muted-foreground: oklch(0.45 0.02 260);
+  --border: oklch(0.9 0.01 260);
+  --primary: oklch(0.48 0.18 262);
+  --primary-foreground: oklch(0.99 0 0);
+  --destructive: oklch(0.52 0.21 27);
+  --ring: oklch(0.55 0.2 262);
+  --now: oklch(0.58 0.22 25);
+  --event-l: 0.9;
+  --event-text-l: 0.28;
+  color-scheme: light;
 }
 
-.dark {
-  --background: oklch(0.16 0 0);
-  --foreground: oklch(0.96 0 0);
-  --muted: oklch(0.24 0 0);
-  --muted-foreground: oklch(0.75 0 0);
-  --border: oklch(0.32 0 0);
-  --primary: oklch(0.75 0.14 260);
-  --primary-foreground: oklch(0.15 0 0);
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --background: oklch(0.17 0.01 260);
+    --surface: oklch(0.21 0.012 260);
+    --foreground: oklch(0.95 0.005 260);
+    --muted: oklch(0.26 0.012 260);
+    --muted-foreground: oklch(0.76 0.02 260);
+    --border: oklch(0.34 0.015 260);
+    --primary: oklch(0.76 0.14 262);
+    --primary-foreground: oklch(0.17 0.01 260);
+    --destructive: oklch(0.72 0.17 25);
+    --ring: oklch(0.76 0.14 262);
+    --now: oklch(0.72 0.2 25);
+    --event-l: 0.34;
+    --event-text-l: 0.95;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --background: oklch(0.17 0.01 260);
+  --surface: oklch(0.21 0.012 260);
+  --foreground: oklch(0.95 0.005 260);
+  --muted: oklch(0.26 0.012 260);
+  --muted-foreground: oklch(0.76 0.02 260);
+  --border: oklch(0.34 0.015 260);
+  --primary: oklch(0.76 0.14 262);
+  --primary-foreground: oklch(0.17 0.01 260);
+  --destructive: oklch(0.72 0.17 25);
+  --ring: oklch(0.76 0.14 262);
+  --now: oklch(0.72 0.2 25);
+  --event-l: 0.34;
+  --event-text-l: 0.95;
+  color-scheme: dark;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-destructive: var(--destructive);
+  --color-ring: var(--ring);
+  --color-now: var(--now);
 }
 
-body {
+html {
   background: var(--background);
   color: var(--foreground);
 }
 
+body {
+  margin: 0;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Reduced motion: no animation or smooth scrolling for people who asked for none (WCAG 2.3.3). */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- calendar ---- */
+.event-block {
+  --hue: 260;
+  position: absolute;
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: 2px 6px;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.25;
+  border-radius: 6px;
+  border: 1px solid oklch(0.62 0.12 var(--hue) / 0.55);
+  border-left: 4px solid oklch(0.58 0.17 var(--hue));
+  background: oklch(var(--event-l) 0.07 var(--hue));
+  color: oklch(var(--event-text-l) 0.05 var(--hue));
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.event-block:hover {
+  filter: brightness(0.97);
+}
+.event-block[data-sync='syncing'] {
+  opacity: 0.7;
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 6px,
+    oklch(0.5 0 0 / 0.08) 6px 12px
+  );
+}
+.event-block[data-sync='error'] {
+  border: 1px dashed var(--destructive);
+  border-left: 4px solid var(--destructive);
+}
+.event-block[data-dragging='true'] {
+  opacity: 0.35;
+}
+.event-block[data-selected='true'] {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  z-index: 5;
+}
+.event-block[data-allday='true'] {
+  /* WCAG 2.2 target size: at least 24 px tall, title centred. */
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  position: static;
+  width: 100%;
+  height: auto;
+  margin-bottom: 2px;
+}
+.event-block[data-allday='true'] > span:first-child {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.grid-hours {
+  background-image:
+    linear-gradient(to bottom, var(--border) 1px, transparent 1px),
+    linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--border) 45%, transparent) 1px,
+      transparent 1px
+    );
+  background-size:
+    100% var(--hour),
+    100% calc(var(--hour) / 2);
 }

@@ -10,6 +10,8 @@ export default tseslint.config(
       'node_modules/**',
       'coverage/**',
       'storybook-static/**',
+      '.lighthouseci/**',
+      '.storybook/public/**',
       'next-env.d.ts',
       'playwright-report/**',
       'src/server/core/db/migrations/**',

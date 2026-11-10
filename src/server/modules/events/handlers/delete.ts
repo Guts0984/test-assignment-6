@@ -3,7 +3,7 @@ import { apiError, parseQuery } from '@/server/core/http';
 import { authorize, isDenied, type AuthDeps } from '@/server/modules/auth/http';
 import { deleteEvent } from '../service';
 import { deleteQuerySchema } from '../validation';
-import { eventIdOf, respond, type RouteContext } from './shared';
+import { eventIdOf, respondAndPublish, type RouteContext } from './shared';
 
 export const makeDeleteEventHandler =
   (deps: AuthDeps) =>
@@ -14,5 +14,5 @@ export const makeDeleteEventHandler =
     if (!id) return apiError(404, 'NOT_FOUND');
     const query = parseQuery(req, deleteQuerySchema);
     if (!query.ok) return query.response;
-    return respond(await deleteEvent(deps.db(), id, query.data));
+    return respondAndPublish(req, await deleteEvent(deps.db(), id, query.data));
   };

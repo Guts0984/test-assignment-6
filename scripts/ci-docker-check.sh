@@ -18,10 +18,12 @@ api() { curl -s -b "$JAR" -c "$JAR" -H 'Content-Type: application/json' "$@"; }
 docker compose up --build -d
 
 for _ in $(seq 1 90); do
-  [ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/" || true)" = "200" ] && break
+  [ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/login" || true)" = "200" ] && break
   sleep 2
 done
-expect "web answers 200" "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/")" "200"
+expect "login page answers 200" "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/login")" "200"
+expect "offline service worker is served (/sw.js)" "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/sw.js")" "200"
+expect "anonymous / redirects to /login" "$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "$BASE/")" "307 ${BASE}/login"
 
 expect "3 users"  "$(sql 'select count(*) from users')" "3"
 expect "50 rooms" "$(sql 'select count(*) from rooms')" "50"
@@ -52,7 +54,12 @@ EVENT_ID="$(sql "select id from events where title = 'CI booking'")"
 expect "delete the booking is 200" "$(api -o /dev/null -w '%{http_code}' -X DELETE "$BASE/api/events/$EVENT_ID?version=1")" "200"
 expect "nothing left of it" "$(sql "select count(*) from events where title = 'CI booking'")" "0"
 
+expect "users list via the API" "$(api "$BASE/api/users" | grep -o '"timezone"' | wc -l | tr -d ' ')" "3"
+STREAM="$(curl -s -N --max-time 3 -b "$JAR" "$BASE/api/stream" || true)"
+echo "$STREAM" | grep -q 'event: hello' || fail "SSE stream did not greet the client"
+echo "ok  SSE stream answers with hello"
 expect "profile time zone change" "$(api -X PATCH -d '{"timezone":"Asia/Tokyo"}' "$BASE/api/me" | grep -o '"timezone":"[^"]*"')" '"timezone":"Asia/Tokyo"'
+api -o /dev/null -X PATCH -d '{"timezone":"Europe/Kyiv"}' "$BASE/api/me" # leave the seeded profile as it was
 expect "logout is 200" "$(api -o /dev/null -w '%{http_code}' -X POST "$BASE/api/auth/logout")" "200"
 expect "after logout /api/me is 401" "$(api -o /dev/null -w '%{http_code}' "$BASE/api/me")" "401"
 

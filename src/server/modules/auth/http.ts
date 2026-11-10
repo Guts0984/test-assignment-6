@@ -4,3 +4,5 @@ export { authorize, currentUser, isDenied, type AuthDeps, type Authed } from './
 export { makeLoginHandler } from './handlers/login';
 export { makeLogoutHandler } from './handlers/logout';
 export { makeGetMeHandler, makeUpdateMeHandler } from './handlers/me';
+export { makeListUsersHandler } from './handlers/users';
+export { getPageUser } from './page-session';

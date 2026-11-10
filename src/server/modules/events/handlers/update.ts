@@ -3,7 +3,7 @@ import { apiError, parseBody } from '@/server/core/http';
 import { authorize, isDenied, type AuthDeps } from '@/server/modules/auth/http';
 import { updateEvent } from '../service';
 import { updateEventSchema } from '../validation';
-import { eventIdOf, respond, type RouteContext } from './shared';
+import { eventIdOf, respondAndPublish, type RouteContext } from './shared';
 
 export const makeUpdateEventHandler =
   (deps: AuthDeps) =>
@@ -14,5 +14,5 @@ export const makeUpdateEventHandler =
     if (!id) return apiError(404, 'NOT_FOUND');
     const body = await parseBody(req, updateEventSchema);
     if (!body.ok) return body.response;
-    return respond(await updateEvent(deps.db(), ctx, id, body.data));
+    return respondAndPublish(req, await updateEvent(deps.db(), ctx, id, body.data));
   };

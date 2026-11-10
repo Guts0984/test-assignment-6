@@ -9,6 +9,7 @@ import { testUrl, truncateAll } from '@/server/tools/testing/db';
 import { makeLoginHandler } from './handlers/login';
 import { makeLogoutHandler } from './handlers/logout';
 import { makeGetMeHandler, makeUpdateMeHandler } from './handlers/me';
+import { makeListUsersHandler } from './handlers/users';
 import type { AuthDeps } from './guard';
 import { hashPassword } from './password';
 import { createSession, findUserBySession, sessionIdFor } from './session';
@@ -358,5 +359,26 @@ describe('PATCH /api/me (profile time zone, acceptance #5)', () => {
     expect(res.status).toBe(403);
     const [a] = await db.select().from(users).where(eq(users.id, ana.id));
     expect(a?.timezone).toBe('Europe/Kyiv');
+  });
+});
+
+describe('GET /api/users (participants picker)', () => {
+  const listUsers = makeListUsersHandler(deps());
+
+  it('requires a session', async () => {
+    expect((await listUsers(call('GET', '/api/users'))).status).toBe(401);
+  });
+
+  it('lists everyone by name with only public fields', async () => {
+    const t = tokenFrom(
+      await login(
+        call('POST', '/api/auth/login', { body: { email: 'bob@example.com', password: PASSWORD } }),
+      ),
+    );
+    const res = await listUsers(call('GET', '/api/users', { cookie: t }));
+    const body = await res.json();
+    expect(body.users.map((u: { name: string }) => u.name)).toEqual(['Ana', 'Bob']);
+    expect(Object.keys(body.users[0]).sort()).toEqual(['email', 'id', 'name', 'timezone']);
+    expect(JSON.stringify(body)).not.toMatch(/scrypt|passwordHash/i);
   });
 });

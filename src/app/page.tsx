@@ -1,10 +1,6 @@
-import { getTranslations } from 'next-intl/server';
+import { redirect } from 'next/navigation';
+import { getPageUser } from '@/server/modules/auth/http';
 
 export default async function HomePage() {
-  const t = await getTranslations('app');
-  return (
-    <main className="p-6">
-      <h1 className="text-xl font-semibold">{t('title')}</h1>
-    </main>
-  );
+  redirect((await getPageUser()) ? '/calendar' : '/login');
 }

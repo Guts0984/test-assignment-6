@@ -7,3 +7,4 @@ export { hashPassword, verifyPassword } from './password';
 export { sessions, users } from './schema';
 export { createSession, sessionIdFor, type SessionConfig } from './session';
 export type { PublicUser } from './user';
+export { listUsers } from './user';

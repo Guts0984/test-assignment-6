@@ -5,6 +5,13 @@ import postgres from 'postgres';
  * Connection comes from the POSTGRES_* vars in .env; the host defaults to localhost
  * because .env.example's host (`postgres`) only resolves inside docker compose.
  */
+/**
+ * Every test run gets its OWN database (named by global setup, which publishes the name here), so two
+ * runs at the same time (two terminals, watch mode, CI jobs sharing a server) cannot drop the database
+ * from under each other. Set TEST_DB_NAME to pin one by hand.
+ */
+export const testDbName = (): string => process.env.TEST_DB_NAME ?? 'calendar_test';
+
 export function testConnectionParts() {
   const host = process.env.TEST_DB_HOST ?? 'localhost';
   const port = process.env.POSTGRES_PORT ?? '5432';
@@ -15,8 +22,8 @@ export function testConnectionParts() {
   const base = `postgres://${enc(user)}:${enc(password)}@${host}:${port}`;
   return {
     adminUrl: `${base}/postgres`,
-    testDbName: 'calendar_test',
-    testUrl: `${base}/calendar_test`,
+    testDbName: testDbName(),
+    testUrl: `${base}/${testDbName()}`,
   };
 }
 

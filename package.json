@@ -21,10 +21,18 @@
     "test:int": "vitest run --project integration",
     "db:generate": "drizzle-kit generate",
     "db:up": "docker compose up -d --wait postgres",
-    "build:bootstrap": "esbuild src/server/tools/bootstrap.ts --bundle --platform=node --format=esm --target=node24 --outfile=dist/bootstrap.mjs --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\""
+    "build:bootstrap": "esbuild src/server/tools/bootstrap.ts --bundle --platform=node --format=esm --target=node24 --outfile=dist/bootstrap.mjs --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\"",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build",
+    "test-storybook": "test-storybook --url http://127.0.0.1:6006",
+    "test:screenshots": "playwright test -c playwright.screenshots.config.ts",
+    "test:screenshots:update": "playwright test -c playwright.screenshots.config.ts --update-snapshots",
+    "lighthouse": "node scripts/lighthouse.mjs"
   },
   "dependencies": {
+    "@hookform/resolvers": "^7.0.5",
     "@js-temporal/polyfill": "^0.5.1",
+    "@tanstack/react-query": "^5.107.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.4",
@@ -34,12 +42,20 @@
     "postgres": "^4.1.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "react-hook-form": "^7.91.0",
     "rrule": "^2.8.1",
     "tailwind-merge": "^3.7.0",
-    "zod": "^4.6.7"
+    "zod": "^4.6.7",
+    "zustand": "^5.1.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@eslint/js": "^10.0.1",
+    "@lhci/cli": "^0.16.0",
+    "@playwright/test": "^1.65.0",
+    "@storybook/addon-a11y": "10.6.7",
+    "@storybook/react-vite": "10.6.7",
+    "@storybook/test-runner": "0.26.0",
     "@tailwindcss/postcss": "^4.3.5",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
@@ -53,13 +69,18 @@
     "eslint": "^10.14.0",
     "eslint-config-next": "^16.4.5",
     "eslint-plugin-boundaries": "^7.4.2",
+    "fake-indexeddb": "^6.2.8",
     "jsdom": "^31.0.0",
+    "msw": "3.0.4",
+    "msw-storybook-addon": "3.0.3",
     "postcss": "^8.5.32",
     "prettier": "^3.9.10",
     "prettier-plugin-tailwindcss": "^0.8.1",
+    "storybook": "10.6.7",
     "tailwindcss": "^4.3.5",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.72.1",
+    "vite": "^8.3.7",
     "vitest": "^5.1.0"
   }
 }

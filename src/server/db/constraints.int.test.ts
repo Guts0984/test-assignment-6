@@ -146,7 +146,12 @@ describe('room exclusion constraint', () => {
     const failed = results.filter((r) => r.status === 'rejected');
     expect(ok).toHaveLength(1);
     expect(failed).toHaveLength(9);
-    for (const f of failed) expect(pgError((f as PromiseRejectedResult).reason).code).toBe('23P01');
+    // Losers get 23P01 (exclusion violation), or 40P01 when Postgres breaks a deadlock between two
+    // concurrent inserters that each wait on the other's uncommitted row. Both mean "not booked";
+    // the API layer retries 40P01 once so the user sees the clean 409 (stage 4).
+    for (const f of failed) {
+      expect(['23P01', '40P01']).toContain(pgError((f as PromiseRejectedResult).reason).code);
+    }
     const count = await raw`select count(*)::int as n from event_occurrences`;
     expect(count[0]?.n).toBe(1);
   });

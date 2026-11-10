@@ -77,3 +77,4 @@ See chat. Defaults used if unanswered are marked in README "Decisions".
 - Series edits: "only this" = exdate + detached event (`series_id`, `original_start`); "this and following" = UNTIL on master + new master; "all" = update master. Deleting a master cascades to its detached exceptions.
 - Instants are `timestamptz` read as strings (no JS `Date`).
 - Integration tests use a real Postgres (`pnpm db:up`, then `pnpm test:int`).
+- Concurrency finding: simultaneous overlapping inserts can fail with `40P01` (deadlock) instead of `23P01`. Stage 4 service must retry once on `40P01`/`40001`, then map `23P01` to 409 with the blocking event.

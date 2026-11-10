@@ -35,6 +35,14 @@ async function inPool<T>(items: readonly T[], size: number, work: (item: T) => P
   );
 }
 
+/** PERF_CPU_THROTTLE=2 makes the page run as if the CPU were 2x slower (a stand-in for a shared CI runner). */
+async function throttle(page: Page) {
+  const rate = Number(process.env.PERF_CPU_THROTTLE ?? 1);
+  if (rate <= 1) return;
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate });
+}
+
 /** Records the slowest interaction (Event Timing) and every animation-frame gap from now on. */
 async function startMeasuring(page: Page) {
   await page.evaluate(() => {
@@ -115,6 +123,7 @@ test.describe('performance at scale (acceptance #13)', () => {
   }, info) => {
     const ctx = await contextAs(browser, 'ana');
     const page = await ctx.newPage();
+    await throttle(page);
     await openCalendar(page, 'week', week.day(0));
     await expect
       .poll(() => page.locator('.event-block[data-key]', { hasText: 'E2E perf' }).count(), {

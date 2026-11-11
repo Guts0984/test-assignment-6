@@ -33,16 +33,19 @@ async function precache() {
       if (!wanted.has(new URL(request.url).pathname)) await cache.delete(request);
 }
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(precache());
-  self.skipWaiting();
-});
+// Installing and activating stay instant: the worker takes control of the page at once, as it always
+// did. Precaching inside `install` delayed that takeover until all files were downloaded, and a worker
+// that takes over in the middle of the page's own first requests can make some of them fail (WebKit
+// reports "due to access control checks"). The page asks for the precache when it is idle instead.
+self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
 // The page asks us to forget the cached HTML on sign-out: it belongs to one user. The build files in
 // STATIC are the same for everybody and stay.
 self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'clear') event.waitUntil(caches.delete(PAGES));
+  if (!event.data) return;
+  if (event.data.type === 'clear') event.waitUntil(caches.delete(PAGES));
+  if (event.data.type === 'precache') event.waitUntil(precache());
 });
 
 self.addEventListener('fetch', (event) => {

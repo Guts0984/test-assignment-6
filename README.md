@@ -209,8 +209,8 @@ What made it fit:
   occurrence works.
 - **Undo of "only this".** The server decides the id of the detached event, so undo is possible only once it
   has answered (offline, a message asks to wait until the change is saved).
-- **Offline.** The service worker downloads every build file when it is installed (list generated after the
-  build), so the lazily loaded panel, dialogs and repeat editor open offline too. The page itself does not
+- **Offline.** Once the page is idle it asks the service worker to download every build file (list
+  generated after the build; not during install, so the worker still takes control of the page at once), so the lazily loaded panel, dialogs and repeat editor open offline too. The page itself does not
   load them early, so the first-load budget is unaffected. If one still cannot be loaded, a message is shown
   instead of an error page. The queue in IndexedDB is kept per tab; a tab adopts the queue of tabs that
   were closed with changes still waiting (Web Locks tell which tabs are alive).

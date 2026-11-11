@@ -43,6 +43,13 @@ describe('seed plan', () => {
     );
   });
 
+  it('people and rooms keep the same ids on every day (room colours depend on them), meetings do not', () => {
+    const other = buildPlan(NOW.add({ hours: 24 * 9 }));
+    expect(other.users.map((u) => u.id)).toEqual(plan.users.map((u) => u.id));
+    expect(other.rooms).toEqual(plan.rooms);
+    expect(other.events.map((e) => e.id)).not.toEqual(plan.events.map((e) => e.id));
+  });
+
   it('never double-books a room (checked independently of the builder)', () => {
     const perRoom = new Map<string, { s: number; e: number; title: string }[]>();
     for (const ev of plan.events) {

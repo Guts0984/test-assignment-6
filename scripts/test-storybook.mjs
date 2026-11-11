@@ -7,7 +7,7 @@
  *
  *   node scripts/test-storybook.mjs [--skip-build]
  */
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize } from 'node:path';
@@ -46,10 +46,14 @@ const server = createServer((req, res) => {
 });
 await new Promise((resolve) => server.listen(port, '127.0.0.1', resolve));
 
-const run = spawnSync(
-  'pnpm',
-  ['exec', 'test-storybook', '--url', `http://127.0.0.1:${port}`, '--maxWorkers=2'],
-  { stdio: 'inherit', env },
-);
+// Asynchronous on purpose: a blocking spawn would stop THIS process, and with it the server above.
+const status = await new Promise((resolve) => {
+  const run = spawn(
+    'pnpm',
+    ['exec', 'test-storybook', '--url', `http://127.0.0.1:${port}`, '--maxWorkers=2'],
+    { stdio: 'inherit', env },
+  );
+  run.on('exit', (code) => resolve(code ?? 1));
+});
 server.close();
-process.exit(run.status ?? 1);
+process.exit(status);

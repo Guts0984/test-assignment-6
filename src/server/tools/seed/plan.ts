@@ -81,12 +81,17 @@ export function buildPlan(now: Temporal.Instant): Plan {
   const windowEnd = windowStart.toZonedDateTimeISO('UTC').add({ months: 2 }).toInstant();
   const rand: Rand = createRand(Math.floor(windowStart.epochMilliseconds / 86_400_000));
 
-  const users: PlannedUser[] = SEED_USERS.map((u) => ({ id: rand.uuid(), ...u }));
+  // The people and the rooms are the same on every run, whatever the day: their ids (and capacities)
+  // come from a fixed stream. The colour of a room on the calendar is derived from its id, so ids that
+  // changed with the date would repaint every meeting (and break the screenshot tests) from one day to
+  // the next. Only the meetings depend on the day.
+  const directory: Rand = createRand(1);
+  const users: PlannedUser[] = SEED_USERS.map((u) => ({ id: directory.uuid(), ...u }));
   const rooms: PlannedRoom[] = Array.from({ length: ROOM_COUNT }, (_, i) => ({
-    id: rand.uuid(),
+    id: directory.uuid(),
     name: `Room ${(i % FLOORS) + 1}${String(Math.floor(i / FLOORS) + 1).padStart(2, '0')}`,
     floor: (i % FLOORS) + 1,
-    capacity: rand.pick([4, 6, 8, 10, 12, 20] as const),
+    capacity: directory.pick([4, 6, 8, 10, 12, 20] as const),
   }));
   const [ana, bob, kenji] = users as [PlannedUser, PlannedUser, PlannedUser];
   const room = (i: number): string => (rooms[i] as PlannedRoom).id;

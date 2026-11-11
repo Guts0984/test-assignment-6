@@ -22,6 +22,7 @@ describe('migrations', () => {
       'events',
       'event_attendees',
       'event_occurrences',
+      'login_failures',
     ]) {
       expect(names).toContain(t);
     }
@@ -34,6 +35,6 @@ describe('migrations', () => {
     await runMigrations(testUrl());
     const after = await raw`select count(*)::int as n from drizzle.__drizzle_migrations`;
     expect(after[0]?.n).toBe(before[0]?.n);
-    expect(after[0]?.n).toBe(2);
+    expect(after[0]?.n).toBe(3); // init, room exclusion, login failures
   });
 });

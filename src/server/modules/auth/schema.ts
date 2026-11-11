@@ -33,3 +33,18 @@ export const sessions = pgTable(
   },
   (t) => [index('sessions_user_idx').on(t.userId)],
 );
+
+/**
+ * Failed sign-in attempts, for the sign-in rate limit. Kept in the database (not in the memory of one
+ * server process) so the counts survive a restart and are shared by every instance of the app.
+ * `key` is `account:<email>` or `ip:<address>`.
+ */
+export const loginFailures = pgTable(
+  'login_failures',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    key: text('key').notNull(),
+    at: tstz('at').notNull().defaultNow(),
+  },
+  (t) => [index('login_failures_key_at_idx').on(t.key, t.at)],
+);

@@ -14,6 +14,9 @@ const schema = z.object({
 
   SESSION_SECRET: z.string().min(32, 'must be at least 32 characters'),
   SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(14),
+  // Reverse proxies in front of the app that we run ourselves (and that append to X-Forwarded-For). 0 means
+  // the app is reached directly and that header is not believed at all.
+  TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
 
   SEED_USER_PASSWORD: z.string().min(8),
 });

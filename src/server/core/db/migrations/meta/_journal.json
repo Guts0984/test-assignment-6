@@ -15,6 +15,13 @@
       "when": 1794318836714,
       "tag": "0001_room_exclusion",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794392913748,
+      "tag": "0002_login_failures",
+      "breakpoints": true
     }
   ]
 }

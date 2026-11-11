@@ -14,6 +14,7 @@ export const authDeps: AuthDeps = {
       ttlDays: env.SESSION_TTL_DAYS,
       // Secure cookies are not sent over plain http (local docker); enable them behind https.
       secureCookies: env.APP_URL.startsWith('https://'),
+      trustedProxyHops: env.TRUSTED_PROXY_HOPS,
     };
   },
 };

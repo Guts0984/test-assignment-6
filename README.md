@@ -189,9 +189,20 @@ What made it fit:
 - **Next.js 16** (the assignment says 15+). pnpm 12, Node 24.
 - **Locale and zone come from the profile** (cookie session), not from the URL; the URL holds view, date and rooms.
 - **Auth** is a minimal session (scrypt passwords, HMAC-hashed session tokens in the database, httpOnly cookie).
-  Sign-in is rate limited (10 failures per e-mail address and 100 per network address in 15 minutes, in memory
-  per server process: it slows guessing down, a shared store would be needed to count across servers). There are
-  no roles; every signed-in user may edit any event (the creator and attendees are recorded and shown).
+  There are no roles; every signed-in user may edit any event (the creator and attendees are recorded and shown).
+- **Sign-in rate limit.** Failed attempts are stored in PostgreSQL (`login_failures`), so they survive a restart
+  and are shared by every instance. Per account, a client may fail 10 times per 15 minutes, then gets a 429 with
+  `Retry-After`, even for the right password. That limit is held only against clients that do not carry the
+  account's _known-browser_ cookie (an HMAC of the e-mail, set after a successful sign-in): so nobody can lock
+  you out of your usual browser by guessing at your address (a browser that has signed in has a separate, more
+  generous allowance of 30). A successful sign-in clears the failures of that kind of client only. Limits of
+  this design: you cannot sign in from a _new_ browser while somebody is guessing at your address (for up to 15
+  minutes), and a distributed guesser with many addresses is limited per account, not per source.
+  X-Forwarded-For is **not trusted by default** (a directly connected client controls it, and Next.js adds the
+  socket address only when the client sent none). If the app runs behind reverse proxies of yours, set
+  `TRUSTED_PROXY_HOPS` to their number: a further limit of 100 failures per address then applies, using the
+  entry your outermost proxy appended (counted from the end of the header, so anything the client wrote before
+  it is ignored).
 - **The conflict screen only appears for offline commands**; an online conflict is a rejection with the blocking
   event named, as the assignment describes for the two-browser case.
 - **Recurring events cannot be expanded in the browser** (that would need `rrule` in the first load): when a

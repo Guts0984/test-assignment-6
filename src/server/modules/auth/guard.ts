@@ -8,7 +8,11 @@ import type { PublicUser } from './user';
 /** Everything auth needs from the outside world, injected so it is testable. */
 export type AuthDeps = {
   db: () => Db;
-  config: () => SessionConfig & { secureCookies: boolean };
+  config: () => SessionConfig & {
+    secureCookies: boolean;
+    /** How many reverse proxies of ours sit in front of the app (0 = none: no client address is trusted). */
+    trustedProxyHops?: number;
+  };
   now: () => Temporal.Instant;
 };
 

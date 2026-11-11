@@ -4,7 +4,8 @@ import { NextRequest } from 'next/server';
 import postgres from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createDb, type Db } from '@/server/core/db';
-import { sessions, users } from './schema';
+import { loginFailures, sessions, users } from './schema';
+import { createLoginLimiter } from './login-limit';
 import { testUrl, truncateAll } from '@/server/tools/testing/db';
 import { makeLoginHandler } from './handlers/login';
 import { makeLogoutHandler } from './handlers/logout';
@@ -23,11 +24,12 @@ let close: () => Promise<void>;
 let raw: postgres.Sql;
 let now = T0;
 let secure = false;
+let hops = 0;
 
 const deps = (): AuthDeps => ({
   db: () => db,
   now: () => now,
-  config: () => ({ secret: SECRET, ttlDays: 14, secureCookies: secure }),
+  config: () => ({ secret: SECRET, ttlDays: 14, secureCookies: secure, trustedProxyHops: hops }),
 });
 
 const login = makeLoginHandler(deps());
@@ -71,6 +73,7 @@ beforeEach(async () => {
   await truncateAll(raw);
   now = T0;
   secure = false;
+  hops = 0;
   const hash = await hashPassword(PASSWORD);
   const rows = await db
     .insert(users)
@@ -380,5 +383,158 @@ describe('GET /api/users (participants picker)', () => {
     expect(body.users.map((u: { name: string }) => u.name)).toEqual(['Ana', 'Bob']);
     expect(Object.keys(body.users[0]).sort()).toEqual(['email', 'id', 'name', 'timezone']);
     expect(JSON.stringify(body)).not.toMatch(/scrypt|passwordHash/i);
+  });
+});
+
+describe('sign-in rate limit', () => {
+  /** A sign-in attempt with whatever extra headers the test wants (cookies, X-Forwarded-For). */
+  const attempt = (
+    email: string,
+    password: string,
+    extra: { cookie?: string; forwardedFor?: string } = {},
+    handler = login,
+  ) =>
+    handler(
+      new NextRequest('http://localhost:3000/api/auth/login', {
+        method: 'POST',
+        headers: {
+          host: 'localhost:3000',
+          'content-type': 'application/json',
+          ...(extra.cookie ? { cookie: extra.cookie } : {}),
+          ...(extra.forwardedFor ? { 'x-forwarded-for': extra.forwardedFor } : {}),
+        },
+        body: JSON.stringify({ email, password }),
+      }),
+    );
+  const wrong = (email = 'ana@example.com', extra: Parameters<typeof attempt>[2] = {}) =>
+    attempt(email, 'not-the-password', extra);
+  const guess = async (times: number, email = 'ana@example.com') => {
+    for (let i = 0; i < times; i += 1) expect((await wrong(email)).status).toBe(401);
+  };
+  /** The "known browser" cookie (`dev-...=...`) a successful sign-in sets. */
+  const deviceCookieOf = (res: Response): string =>
+    res.headers
+      .getSetCookie()
+      .find((c) => c.startsWith('dev-'))
+      ?.split(';')[0] ?? '';
+
+  it('after ten wrong passwords for an account, a client without its browser cookie is turned away', async () => {
+    await guess(10);
+    const blocked = await wrong();
+    expect(blocked.status).toBe(429);
+    expect((await blocked.json()).error.code).toBe('TOO_MANY_ATTEMPTS');
+    const retry = Number(blocked.headers.get('retry-after'));
+    expect(retry).toBeGreaterThan(0);
+    expect(retry).toBeLessThanOrEqual(15 * 60);
+    // Even the right password is refused while blocked (that is what makes guessing pointless).
+    expect((await attempt('ana@example.com', PASSWORD)).status).toBe(429);
+  });
+
+  it("somebody else's guesses cannot lock the owner out of their usual browser", async () => {
+    const first = await attempt('ana@example.com', PASSWORD); // Ana signs in once: this browser is now known
+    expect(first.status).toBe(200);
+    const device = deviceCookieOf(first);
+    expect(device).toMatch(/^dev-[0-9a-f]{16}=.+/);
+
+    await guess(10); // an attacker (no cookie) guesses at Ana's address
+    expect((await wrong()).status).toBe(429); // ...and is locked out
+    expect((await attempt('ana@example.com', PASSWORD, { cookie: device })).status).toBe(200); // Ana is not
+  });
+
+  it('the owner signing in does not give an attacker a fresh set of guesses', async () => {
+    const device = deviceCookieOf(await attempt('ana@example.com', PASSWORD));
+    await guess(10);
+    expect((await wrong()).status).toBe(429);
+    expect((await attempt('ana@example.com', PASSWORD, { cookie: device })).status).toBe(200);
+    expect((await wrong()).status).toBe(429); // the attacker is still blocked after the owner's sign-in
+  });
+
+  it('the browser marker belongs to one account only', async () => {
+    const device = deviceCookieOf(await attempt('ana@example.com', PASSWORD));
+    await guess(10, 'bob@example.com');
+    // Ana's marker says nothing about Bob's account: it does not get past Bob's block.
+    expect((await attempt('bob@example.com', PASSWORD, { cookie: device })).status).toBe(429);
+  });
+
+  it('a forged marker is worth nothing', async () => {
+    const real = deviceCookieOf(await attempt('ana@example.com', PASSWORD));
+    const forged = real.replace(/=.*/, '=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
+    await guess(10);
+    expect((await attempt('ana@example.com', PASSWORD, { cookie: forged })).status).toBe(429);
+  });
+
+  it('another account is not affected by the block', async () => {
+    await guess(10);
+    expect((await wrong()).status).toBe(429);
+    expect((await attempt('bob@example.com', PASSWORD)).status).toBe(200);
+  });
+
+  it('the counts live in the database: a freshly started handler (a restart, a second server) sees them', async () => {
+    await guess(10);
+    const restarted = makeLoginHandler(deps());
+    expect((await attempt('ana@example.com', PASSWORD, {}, restarted)).status).toBe(429);
+  });
+
+  it('a successful sign-in resets the count', async () => {
+    await guess(9);
+    expect((await attempt('ana@example.com', PASSWORD)).status).toBe(200);
+    await guess(9); // would be the 10th..18th failure without the reset: still not blocked
+  });
+
+  it('the block ends when the oldest failure is fifteen minutes old', async () => {
+    await guess(10);
+    expect((await wrong()).status).toBe(429);
+    now = T0.add({ minutes: 14, seconds: 59 });
+    expect((await wrong()).status).toBe(429);
+    now = T0.add({ minutes: 15, seconds: 1 });
+    expect((await wrong()).status).toBe(401); // allowed to try again
+  });
+
+  it('a spoofed X-Forwarded-For changes nothing: it neither escapes the block nor is it counted', async () => {
+    await guess(10);
+    const forgeries = ['1.2.3.4', '5.6.7.8, 9.9.9.9', '10.0.0.1'];
+    for (const forged of forgeries) {
+      expect((await wrong('ana@example.com', { forwardedFor: forged })).status).toBe(429);
+    }
+    // Failures that ARE recorded (another account, not blocked) carry a forged header too. With no
+    // trusted proxy configured no address is taken from it, so only per-account counts exist.
+    for (const forged of forgeries) {
+      expect((await wrong('bob@example.com', { forwardedFor: forged })).status).toBe(401);
+    }
+    const rows = await db.select().from(loginFailures);
+    expect(rows.length).toBe(13);
+    expect(rows.every((r) => r.key.startsWith('account:'))).toBe(true);
+  });
+
+  it("behind one trusted proxy the address is the proxy's entry (the last one); what the client put before it is ignored", async () => {
+    hops = 1;
+    // A client that forges the start of the header: only the entry its own proxy appended counts.
+    await wrong('ana@example.com', { forwardedFor: 'forged-by-client, 203.0.113.7' });
+    await wrong('bob@example.com', { forwardedFor: '203.0.113.7' });
+    const keys = (await db.select().from(loginFailures)).map((r) => r.key).sort();
+    expect(keys).toEqual([
+      'account:ana@example.com',
+      'account:bob@example.com',
+      'ip:203.0.113.7',
+      'ip:203.0.113.7',
+    ]);
+  });
+
+  it('the per-address limit blocks one address for every account, but not other addresses', async () => {
+    hops = 1;
+    const limiter = createLoginLimiter({ max: 3 });
+    for (let i = 0; i < 3; i += 1) await limiter.fail(db, 'ip:203.0.113.7', now);
+    expect(await limiter.retryAfter(db, 'ip:203.0.113.7', now)).toBeGreaterThan(0);
+    expect(await limiter.retryAfter(db, 'ip:198.51.100.1', now)).toBe(0);
+    expect(await limiter.retryAfter(db, 'ip:203.0.113.7', now.add({ minutes: 16 }))).toBe(0);
+    await limiter.clear(db, 'ip:203.0.113.7');
+    expect(await limiter.retryAfter(db, 'ip:203.0.113.7', now)).toBe(0);
+  });
+
+  it('old failures are removed (the table does not grow without bound)', async () => {
+    await guess(3);
+    now = T0.add({ hours: 1 });
+    await wrong(); // records one more and sweeps what is older than the window
+    expect(await db.select().from(loginFailures)).toHaveLength(1);
   });
 });

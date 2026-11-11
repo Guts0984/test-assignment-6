@@ -11,6 +11,7 @@
     "submitting": "Signing in…",
     "signOut": "Sign out",
     "invalid": "Wrong email or password.",
+    "tooMany": "Too many failed attempts. Please wait a few minutes and try again.",
     "network": "Could not reach the server.",
     "demoHint": "Demo accounts: ana@example.com, bob@example.com, kenji@example.com"
   },
@@ -153,7 +154,10 @@
     "FORBIDDEN_ORIGIN": "Request rejected.",
     "NETWORK": "You are offline. The change is saved and will be sent later.",
     "UNKNOWN": "Something went wrong.",
-    "CANNOT_UNDO": "“{label}” cannot be undone."
+    "CANNOT_UNDO": "“{label}” cannot be undone.",
+    "UNDO_WAIT": "“{label}” is still being saved. Wait a moment, then undo.",
+    "CHUNK_UNAVAILABLE": "This part is not available offline yet. Reconnect and try again.",
+    "SERIES_OFFLINE": "Changing the whole series needs a connection."
   },
   "announce": {
     "created": "Created “{title}”",

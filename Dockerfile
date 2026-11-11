@@ -25,7 +25,9 @@ COPY --from=build /app/public ./public
 # Migrations + seed: bundled script and the SQL it applies.
 COPY --from=build /app/dist/bootstrap.mjs ./dist/bootstrap.mjs
 COPY --from=build /app/src/server/core/db/migrations ./src/server/core/db/migrations
+# Starts the server and restarts the container if the server stops answering.
+COPY docker-entrypoint.sh ./docker-entrypoint.sh
 USER node
 EXPOSE 3000
 # Idempotent: applies pending migrations, seeds only an empty database, then starts the server.
-CMD ["sh", "-c", "node dist/bootstrap.mjs && exec node server.js"]
+CMD ["sh", "./docker-entrypoint.sh"]

@@ -16,6 +16,18 @@ describe('parseLocation', () => {
     expect(l.rooms).toEqual([ROOM_A, ROOM_B]);
   });
 
+  it.each(['9000-01-01', '1000-01-01', '2032-01-01', '2020-01-01'])(
+    'a date far outside the supported span (%s) falls back to today instead of being sent to the server',
+    (date) => {
+      expect(formatCivil(parse(`date=${date}`).date)).toBe('2026-11-11');
+    },
+  );
+
+  it('dates up to four years either side are kept', () => {
+    expect(formatCivil(parse('date=2030-12-31').date)).toBe('2030-12-31');
+    expect(formatCivil(parse('date=2022-01-01').date)).toBe('2022-01-01');
+  });
+
   it('defaults to the week view and TODAY IN THE PROFILE ZONE (not UTC, not the browser)', () => {
     expect(formatCivil(parse('').date)).toBe('2026-11-11'); // Kyiv is already on the 11th
     expect(formatCivil(parse('', 'America/New_York').date)).toBe('2026-11-10');

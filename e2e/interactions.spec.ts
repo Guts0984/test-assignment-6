@@ -180,4 +180,55 @@ test.describe('interactions', () => {
     expect(await topOf()).toBeCloseTo(0.5 * PX_PER_HOUR, 0);
     await ctx.close();
   });
+
+  /** Tue 22:00 -> Wed 10:00 Kyiv: two pieces (2 h on Tuesday, 10 h on Wednesday). */
+  async function overnight(title: string) {
+    return tracker.create({
+      roomId: rooms[0]!.id,
+      title,
+      startAt: kyivInstant(week.day(1), '22:00'),
+      endAt: kyivInstant(week.day(2), '10:00'),
+    });
+  }
+
+  test('a meeting across midnight keeps its length when its SECOND piece is dragged with the mouse', async ({
+    browser,
+  }) => {
+    const ev = await overnight('E2E overnight mouse');
+    const ctx = await contextAs(browser, 'ana', { viewport: { width: 1400, height: 900 } });
+    const page = await ctx.newPage();
+    await openCalendar(page, 'week', week.day(0));
+    const piece = page
+      .locator('[data-column-id]')
+      .nth(2) // Wednesday
+      .locator('.event-block', { hasText: 'E2E overnight mouse' });
+    const box = await boxOf(piece);
+    // Grab it at 08:00 and drag it one hour down: the whole meeting must move one hour, no more.
+    await dragBy(page, { x: box.x + 20, y: box.y + 8 * PX_PER_HOUR }, 0, PX_PER_HOUR);
+    await expect(page.getByTestId('sync-indicator')).toHaveAttribute('data-status', 'saved');
+    expect(await row(ev.id)).toMatchObject({
+      startAt: kyivInstant(week.day(1), '23:00'),
+      endAt: kyivInstant(week.day(2), '11:00'),
+    });
+    await ctx.close();
+  });
+
+  test('a meeting across midnight is not cut off at midnight when moved with the keyboard', async ({
+    browser,
+  }) => {
+    const ev = await overnight('E2E overnight keys');
+    const ctx = await contextAs(browser, 'ana', { viewport: { width: 1400, height: 900 } });
+    const page = await ctx.newPage();
+    await openCalendar(page, 'week', week.day(0));
+    await eventBlock(page, 'E2E overnight keys').focus(); // the Tuesday piece comes first in the page
+    await page.keyboard.press('Space'); // pick it up
+    for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowUp'); // one hour earlier
+    await page.keyboard.press('Enter'); // drop
+    await expect(page.getByTestId('sync-indicator')).toHaveAttribute('data-status', 'saved');
+    expect(await row(ev.id)).toMatchObject({
+      startAt: kyivInstant(week.day(1), '21:00'),
+      endAt: kyivInstant(week.day(2), '09:00'), // the Wednesday part survived
+    });
+    await ctx.close();
+  });
 });

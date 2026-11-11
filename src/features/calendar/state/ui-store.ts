@@ -1,3 +1,4 @@
+import type { CalEvent } from '@/shared/calendar/types';
 import { create } from 'zustand';
 import type { Scope } from '@/shared/contracts';
 import type { Civil } from '@/shared/zoned';
@@ -20,7 +21,8 @@ export type DragState = {
 
 export type PanelState =
   | { kind: 'create'; date: Civil; startMin: number; endMin: number; roomId: string | null }
-  | { kind: 'edit'; key: string }
+  /** `event` is what was on screen when the panel opened: the panel keeps working if that occurrence moves or vanishes meanwhile. */
+  | { kind: 'edit'; key: string; event: CalEvent }
   | null;
 
 /** The keyboard cursor: which slot has focus when navigating the grid with the arrow keys. */

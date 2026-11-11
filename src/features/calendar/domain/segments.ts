@@ -77,11 +77,25 @@ export function segmentsOf(event: CalEvent, tz: string, from?: Civil, to?: Civil
     if (!keep(date)) continue;
     const isFirst = i === 0;
     const isLast = i === days - 1;
+    const startMin = isFirst ? minutesOf(startLocal) : 0;
+    let endMin = isLast
+      ? endsAtMidnight
+        ? MINUTES_PER_DAY
+        : minutesOf(endLocal)
+      : MINUTES_PER_DAY;
+    // The wall clock can run backwards (the hour that happens twice when clocks go back): an event from
+    // 02:30 to 02:10 on that morning is really 40 minutes long. Draw its real length, never a negative one.
+    if (isFirst && isLast && endMin <= startMin) {
+      endMin = Math.min(
+        MINUTES_PER_DAY,
+        startMin + Math.max(1, (event.end - event.start) / 60_000),
+      );
+    }
     out.push({
       event,
       date,
-      startMin: isFirst ? minutesOf(startLocal) : 0,
-      endMin: isLast ? (endsAtMidnight ? MINUTES_PER_DAY : minutesOf(endLocal)) : MINUTES_PER_DAY,
+      startMin,
+      endMin,
       continuesBefore: !isFirst,
       continuesAfter: !isLast,
       allDay: false,

@@ -154,7 +154,7 @@ describe('GET /api/stream', () => {
     expect(hello).toMatchObject({ event: 'hello', id: getBus().latestId() });
   });
 
-  it('creating, editing and deleting an event reaches ANOTHER user live, in order, with the author id', async () => {
+  it("creating, editing and deleting an event reaches ANOTHER user live, in order, without the author's client id", async () => {
     const bob = await connect('bob');
     await bob.next(2); // retry + hello
     const made = await post('ana', meeting(), 'ana-tab-1');
@@ -163,7 +163,8 @@ describe('GET /api/stream', () => {
 
     const f1 = await bob.nextEvent();
     expect(f1.event).toBe('events-changed');
-    expect(f1.data.origin).toBe('ana-tab-1');
+    // The client id is a capability ("ignore messages with this id"): other users never see it.
+    expect(f1.data.origin).toBeNull();
     expect(f1.data.data.changed[0]).toMatchObject({ id, title: 'Live', version: 1 });
 
     const edited = await update(
@@ -184,6 +185,18 @@ describe('GET /api/stream', () => {
 
     const seq = [f1, f2, f3].map((f) => Number(f.id!.split(':')[1]));
     expect(seq).toEqual([seq[0]!, seq[0]! + 1, seq[0]! + 2]);
+  });
+
+  it("the author's own connection sees the client id (to skip its own echo), nobody else's does", async () => {
+    const ana = await connect('ana');
+    await ana.next(2);
+    const bob = await connect('bob');
+    await bob.next(2);
+    await post('ana', meeting(), 'ana-tab-1');
+    const mine = await ana.nextEvent();
+    const theirs = await bob.nextEvent();
+    expect(mine.data.origin).toBe('ana-tab-1');
+    expect(theirs.data.origin).toBeNull();
   });
 
   it('a series edit publishes every event it touched (old series, new series)', async () => {

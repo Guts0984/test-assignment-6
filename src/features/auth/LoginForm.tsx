@@ -26,7 +26,13 @@ export function LoginForm() {
       return;
     }
     setBusy(false);
-    setError(result.kind === 'network' ? t('network') : t('invalid'));
+    setError(
+      result.kind === 'network'
+        ? t('network')
+        : result.code === 'TOO_MANY_ATTEMPTS'
+          ? t('tooMany')
+          : t('invalid'),
+    );
   }
 
   const field =

@@ -1,8 +1,13 @@
 import { getBus } from './singleton';
 
 /** Announces a change to every connected client. `origin` is the author's X-Client-Id, if any. */
-export const publishChange = (type: string, data: unknown, origin: string | null): void => {
-  getBus().publish(type, data, origin);
+export const publishChange = (
+  type: string,
+  data: unknown,
+  origin: string | null,
+  originUser: string | null = null,
+): void => {
+  getBus().publish(type, data, origin, originUser);
 };
 
 /** Reads and sanitizes the X-Client-Id request header. */

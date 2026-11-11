@@ -11,3 +11,4 @@ test-results
 storybook-static
 .lighthouseci
 dist
+public/precache.js

@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && node scripts/write-sw-manifest.mjs",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
@@ -20,11 +20,11 @@
     "test:unit": "vitest run --project unit",
     "test:int": "vitest run --project integration",
     "db:generate": "drizzle-kit generate",
-    "db:up": "docker compose up -d --wait postgres",
+    "db:up": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --wait postgres",
     "build:bootstrap": "esbuild src/server/tools/bootstrap.ts --bundle --platform=node --format=esm --target=node24 --outfile=dist/bootstrap.mjs --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\"",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
-    "test-storybook": "test-storybook --url http://127.0.0.1:6006",
+    "test-storybook": "node scripts/test-storybook.mjs",
     "test:screenshots": "playwright test -c playwright.screenshots.config.ts",
     "test:screenshots:update": "playwright test -c playwright.screenshots.config.ts --update-snapshots",
     "lighthouse": "node scripts/lighthouse.mjs"

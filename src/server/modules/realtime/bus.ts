@@ -11,6 +11,8 @@ export type Message = {
   data: unknown;
   /** Client id of whoever caused this message (X-Client-Id header), so they can skip their own echo. */
   origin: string | null;
+  /** The user who caused it. The client id is shown only to this user's own connections (see the stream). */
+  originUser?: string | null;
 };
 
 export type Replay =
@@ -19,7 +21,12 @@ export type Replay =
   | { kind: 'resync' };
 
 export type Bus = {
-  publish: (type: string, data: unknown, origin: string | null) => Message;
+  publish: (
+    type: string,
+    data: unknown,
+    origin: string | null,
+    originUser?: string | null,
+  ) => Message;
   subscribe: (listener: (message: Message) => void) => () => void;
   /** Messages after `lastEventId` (exclusive). `undefined` means a fresh connection: nothing to replay. */
   replay: (lastEventId: string | undefined) => Replay;
@@ -36,9 +43,9 @@ export function createBus({ capacity = 1000, epoch = randomEpoch() }: Options = 
   const idOf = (n: number) => `${epoch}:${n}`;
 
   return {
-    publish: (type, data, origin) => {
+    publish: (type, data, origin, originUser = null) => {
       seq += 1;
-      const message: Message = { id: idOf(seq), type, data, origin };
+      const message: Message = { id: idOf(seq), type, data, origin, originUser };
       buffer = [...buffer.slice(-(capacity - 1)), message];
       // One failing listener must not stop delivery to the others.
       for (const listener of [...listeners]) {

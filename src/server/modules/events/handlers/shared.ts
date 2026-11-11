@@ -31,12 +31,15 @@ export function respondAndPublish(
   req: NextRequest,
   result: Result<MutationResult>,
   status = 200,
+  /** Who made the change (the author's client id is shown to this user's own tabs only). */
+  userId: string | null = null,
 ): NextResponse {
   if (result.ok && !result.value.replayed) {
     publishChange(
       'events-changed',
       { changed: result.value.events, deletedEventIds: result.value.deletedEventIds },
       originOf(req.headers),
+      userId,
     );
   }
   return respond(result, result.ok && result.value.replayed ? 200 : status);

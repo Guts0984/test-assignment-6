@@ -6,8 +6,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - '${POSTGRES_PORT:-5432}:5432'
+    # No published port here: the web container reaches the database over the compose network, so a
+    # PostgreSQL already running on the host (port 5432) cannot stop `docker compose up`. For local
+    # development and the integration tests the port is published by docker-compose.dev.yml (pnpm db:up).
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -20,6 +21,16 @@ services:
     build: .
     restart: unless-stopped
     env_file: .env
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/login',{signal:AbortSignal.timeout(5000)}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+      interval: 15s
+      timeout: 8s
+      retries: 3
+      start_period: 40s
     depends_on:
       postgres:
         condition: service_healthy

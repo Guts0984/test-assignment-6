@@ -1,6 +1,7 @@
 import { Temporal } from '@js-temporal/polyfill';
 import { describe, expect, it } from 'vitest';
-import { count, created, world, setupApiWorld } from '@/server/tools/testing/harness';
+import { extendOpenSeries } from '../service/extend-series';
+import { count, created, world, NOW, setupApiWorld } from '@/server/tools/testing/harness';
 import { post, list, occurrences, starts, meeting, weekly, WEEKLY_STARTS, ALL_2026 } from './api';
 
 setupApiWorld();
@@ -82,5 +83,23 @@ describe('recurring events', () => {
       ['Squatter', '2028-01-06T10:00:00Z'],
       ['All-hands', '2028-01-13T10:00:00Z'],
     ]);
+  });
+
+  it('extending an open-ended series never goes past the supported span, whatever is asked for', async () => {
+    created(await post('ana', meeting({ rrule: 'FREQ=DAILY' })));
+    const before = await count('event_occurrences');
+    // What a request for the year 9000 used to do: write a row for every day until then.
+    await extendOpenSeries(world.db, Temporal.Instant.from('9000-01-01T00:00:00Z'), NOW);
+    const rows = await count('event_occurrences');
+    // About 5.5 years of days (the limit plus the 6-month look-ahead), not 2.5 million.
+    expect(rows).toBeGreaterThan(before);
+    expect(rows).toBeLessThan(2200);
+    const [row] = await world.raw`select max(upper(during))::text as last from event_occurrences`;
+    expect(
+      Temporal.Instant.compare(
+        Temporal.Instant.from(String(row?.last)),
+        NOW.add({ hours: 24 * 366 * 6 }),
+      ),
+    ).toBeLessThan(0);
   });
 });

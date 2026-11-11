@@ -8,6 +8,7 @@
 export type ApiErrorCode =
   | 'VALIDATION'
   | 'INVALID_CREDENTIALS'
+  | 'TOO_MANY_ATTEMPTS'
   | 'UNAUTHENTICATED'
   | 'FORBIDDEN_ORIGIN'
   | 'NOT_FOUND'

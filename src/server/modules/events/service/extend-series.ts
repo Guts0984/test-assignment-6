@@ -5,6 +5,7 @@ import { parseInstant } from '@/shared/time';
 import { occurrenceRangesBetween } from '../materialize';
 import { sourceOf } from '../repository';
 import { eventOccurrences, events } from '../schema';
+import { supportedWindow } from '../window';
 import { lockRooms } from './persist';
 
 /**
@@ -12,7 +13,15 @@ import { lockRooms } from './persist';
  * ahead, extend them (idempotent, safe under concurrent reads). Occurrences that would collide
  * with bookings made in the meantime are skipped by the database (ON CONFLICT DO NOTHING).
  */
-export async function extendOpenSeries(db: Db, to: Temporal.Instant): Promise<void> {
+export async function extendOpenSeries(
+  db: Db,
+  requested: Temporal.Instant,
+  now: Temporal.Instant = Temporal.Now.instant(),
+): Promise<void> {
+  // Whatever the caller asks for, never materialize beyond the supported span (this is what turned a
+  // request for the year 9000 into hundreds of thousands of rows).
+  const { latest } = supportedWindow(now);
+  const to = Temporal.Instant.compare(requested, latest) > 0 ? latest : requested;
   const due = await db
     .select({ id: events.id })
     .from(events)

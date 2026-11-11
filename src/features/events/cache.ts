@@ -62,12 +62,14 @@ export function mergeChange(
   for (const dto of change.changed) {
     const known = events.filter((e) => e.eventId === dto.id);
     if (known.length > 0 && known.every((e) => e.version >= dto.version)) continue; // stale or our own echo
-    events = events.filter((e) => e.eventId !== dto.id);
     if (dto.rrule !== null) {
-      const startsBeforeEnd = (parseInstant(dto.startAt) as number) < period.to;
-      if (startsBeforeEnd) needsRefetch = true;
+      // A series cannot be expanded here. While the refetch is on its way, keep what is on screen: removing
+      // the series first made it blink away after every edit of it, our own included.
+      if ((parseInstant(dto.startAt) as number) < period.to) needsRefetch = true;
+      else events = events.filter((e) => e.eventId !== dto.id); // it now starts after this period
       continue;
     }
+    events = events.filter((e) => e.eventId !== dto.id);
     const occurrence = occurrenceOf(dto, creatorName(dto.creatorId));
     if (overlaps(occurrence, period)) events = [...events, occurrence];
   }

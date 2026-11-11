@@ -5,9 +5,7 @@ import { authorize, isDenied, type AuthDeps } from '@/server/modules/auth/http';
 import { listOccurrences } from '../repository';
 import { extendOpenSeries } from '../service';
 import { listQuerySchema } from '../validation';
-
-/** Windows further than this from today are refused (reads can extend open-ended series). */
-const MAX_YEARS_AHEAD = 5;
+import { isSupportedWindow, MAX_YEARS_AHEAD } from '../window';
 
 export const makeListEventsHandler =
   (deps: AuthDeps) =>
@@ -18,20 +16,12 @@ export const makeListEventsHandler =
     if (!query.ok) return query.response;
 
     const { from, to, rooms } = query.data;
-    const today = ctx.now.toZonedDateTimeISO('UTC');
-    const [latest, earliest] = [
-      today.add({ years: MAX_YEARS_AHEAD }).toInstant(),
-      today.subtract({ years: MAX_YEARS_AHEAD }).toInstant(),
-    ];
-    if (
-      Temporal.Instant.compare(Temporal.Instant.from(to), latest) > 0 ||
-      Temporal.Instant.compare(Temporal.Instant.from(from), earliest) < 0
-    ) {
+    if (!isSupportedWindow(Temporal.Instant.from(from), Temporal.Instant.from(to), ctx.now)) {
       return validationError([
         { path: 'from', message: `must be within ${MAX_YEARS_AHEAD} years of today` },
       ]);
     }
     const db = deps.db();
-    await extendOpenSeries(db, Temporal.Instant.from(to));
+    await extendOpenSeries(db, Temporal.Instant.from(to), ctx.now);
     return json({ occurrences: await listOccurrences(db, { from, to, rooms }) });
   };

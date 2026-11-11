@@ -126,10 +126,16 @@ export default function EventPanel(props: Props) {
 
   // --- free rooms ---
   const slot = useMemo(() => slotOf(values, ctx), [values, ctx]);
+  // A stable function: it reads the latest `props.fetchBusy` through a ref. Depending on `props` itself
+  // made it a new function on every render, which restarted the debounced lookup each time.
+  const fetchBusyRef = useRef(props.fetchBusy);
+  useEffect(() => {
+    fetchBusyRef.current = props.fetchBusy;
+  });
   const fetchBusy = useCallback(
     (from: number, to: number, signal: AbortSignal) =>
-      props.fetchBusy(from, to, signal, editing?.eventId),
-    [props, editing?.eventId],
+      fetchBusyRef.current(from, to, signal, editing?.eventId),
+    [editing?.eventId],
   );
   const free = useFreeRooms(slot, rooms, fetchBusy);
   const roomBusy =

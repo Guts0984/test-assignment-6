@@ -16,6 +16,11 @@ export type Entry = {
   /** How to reverse it; null when it cannot be reversed (e.g. a series split). */
   undo: Intent | null;
   redo: Intent;
+  /**
+   * "Only this" edits make the server create a detached event, and undo has to address THAT event. Until
+   * the server has answered we do not know its id, so the entry cannot be undone yet (see runtime.undo).
+   */
+  awaiting?: boolean;
 };
 
 export type History = { past: readonly Entry[]; future: readonly Entry[] };

@@ -4,7 +4,7 @@ import { CalendarApp, parseLocation, rangeOf, weekStartOf } from '@/features/cal
 import { toPeriod } from '@/features/events';
 import { getDb } from '@/server/core/db';
 import { listUsers } from '@/server/modules/auth';
-import { extendOpenSeries, listOccurrences } from '@/server/modules/events';
+import { extendOpenSeries, isSupportedWindow, listOccurrences } from '@/server/modules/events';
 import { listRooms } from '@/server/modules/rooms';
 import { formatInstant } from '@/shared/zoned';
 import { getPageSettings } from '../settings';
@@ -31,11 +31,20 @@ export default async function CalendarPage({ searchParams }: { searchParams: Sea
   );
 
   const db = getDb();
-  await extendOpenSeries(db, Temporal.Instant.fromEpochMilliseconds(range.to));
+  // The same limit as the API (see isSupportedWindow): outside it the page shows an empty period and
+  // never reads or extends anything.
+  const supported = isSupportedWindow(
+    Temporal.Instant.fromEpochMilliseconds(range.from),
+    Temporal.Instant.fromEpochMilliseconds(range.to),
+    Temporal.Instant.fromEpochMilliseconds(now),
+  );
+  if (supported) await extendOpenSeries(db, Temporal.Instant.fromEpochMilliseconds(range.to));
   const [rooms, users, occurrences] = await Promise.all([
     listRooms(db),
     listUsers(db),
-    listOccurrences(db, { from: formatInstant(range.from), to: formatInstant(range.to) }),
+    supported
+      ? listOccurrences(db, { from: formatInstant(range.from), to: formatInstant(range.to) })
+      : [],
   ]);
 
   return (

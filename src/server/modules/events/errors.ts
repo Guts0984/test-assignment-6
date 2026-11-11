@@ -18,10 +18,11 @@ export async function roomConflictError(
   db: Db,
   roomId: string,
   ranges: string[],
+  except: readonly string[] = [],
 ): Promise<ServiceError> {
   return {
     status: 409,
     code: 'ROOM_CONFLICT',
-    details: { blockers: await findBlockers(db, roomId, ranges) },
+    details: { blockers: await findBlockers(db, roomId, ranges, except) },
   };
 }

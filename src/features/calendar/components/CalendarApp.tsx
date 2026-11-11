@@ -1,7 +1,15 @@
 'use client';
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+  type ComponentType,
+  type LazyExoticComponent,
+} from 'react';
 import { useTranslations } from 'next-intl';
 import {
   EventsProvider,
@@ -27,7 +35,7 @@ import type { CalEvent } from '@/shared/calendar';
 import type { Scope } from '@/shared/contracts';
 import { formatCivil, formatInstant, parseInstant, sameCivil, type Civil } from '@/shared/zoned';
 import { daysOf, neighborRanges, rangeOf, shiftAnchor, weekStartOf } from '../domain/range';
-import { movedTimes, rangeTimes, resizedTimes, shiftSeriesTimes } from '../domain/move';
+import { changedBySegment, movedBySegment, resizedTimes, shiftSeriesTimes } from '../domain/move';
 import type { Segment } from '../domain/segments';
 import { dayKey, dayOf, segmentsOfCached } from '../domain/segments';
 import { EnvProvider, type CalendarEnv } from '../context';
@@ -43,10 +51,34 @@ import { Toolbar } from './Toolbar';
 import { LiveRegion, Toasts } from './Toasts';
 import type { Prefs } from './SettingsDialog';
 
-const ScopeDialog = lazy(() => import('./ScopeDialog'));
-const EventPanel = lazy(loadEventPanel);
-const ConflictDialog = lazy(loadConflictDialog);
-const SettingsDialog = lazy(() => import('./SettingsDialog'));
+/**
+ * A dialog whose code is downloaded when first needed. If that download fails (offline, and the service
+ * worker did not have the file), the dialog is dropped with a message: an unhandled failure of a lazy
+ * component would take the whole page down.
+ */
+function lazyDialog<P extends object>(
+  load: () => Promise<{ default: ComponentType<P> }>,
+): LazyExoticComponent<ComponentType<P>> {
+  return lazy(() =>
+    load().catch(() => ({
+      default: function ChunkUnavailable() {
+        useEffect(() => {
+          const ui = useUi.getState();
+          ui.scopePrompt?.resolve(null); // a pending "which occurrences?" question must not hang
+          ui.setSettingsOpen(false);
+          ui.openPanel(null);
+          ui.pushToast({ kind: 'error', code: 'CHUNK_UNAVAILABLE', params: {} });
+        }, []);
+        return null;
+      } as ComponentType<P>,
+    })),
+  );
+}
+
+const ScopeDialog = lazyDialog(() => import('./ScopeDialog'));
+const EventPanel = lazyDialog(loadEventPanel);
+const ConflictDialog = lazyDialog(loadConflictDialog);
+const SettingsDialog = lazyDialog(() => import('./SettingsDialog'));
 
 type Props = {
   user: PublicUser;
@@ -163,10 +195,15 @@ function CalendarScreen({
     const scope = await chooseScope(event, 'edit', allowAll);
     if (scope === null) return; // cancelled
     const change = { ...patch };
-    if (scope === 'all') {
-      // Editing the whole series: the server wants the series' first occurrence, shifted by the same wall-clock delta.
+    // Editing the whole series WITH new times: the server wants the series' first occurrence, shifted by
+    // the same wall-clock delta. An edit that leaves the times alone (name, room, people) needs none of it.
+    if (scope === 'all' && change.start !== undefined && change.end !== undefined) {
       const master = await fetchEvent(event.eventId);
-      if (!master || change.start === undefined || change.end === undefined) return;
+      if (!master) {
+        // Never drop an edit silently: without the series (offline) its times cannot be worked out.
+        useUi.getState().pushToast({ kind: 'error', code: 'SERIES_OFFLINE', params: {} });
+        return;
+      }
       const from = {
         start: parseInstant(master.startAt) as number,
         end: parseInstant(master.endAt) as number,
@@ -175,16 +212,36 @@ function CalendarScreen({
         master: from,
         oldOccurrenceStart: event.start,
         newOccurrenceStart: change.start,
+        oldOccurrenceEnd: event.end,
+        newOccurrenceEnd: change.end,
         tzid: event.tzid,
       });
       change.series = { from, to };
     }
+    const hadFocus = document.activeElement?.closest?.('.event-block') != null;
     runtime?.actions.change(event, change, scope);
+    // The block is redrawn (in another column, or under a new key) and keyboard focus would be lost:
+    // put it back on the same meeting so the next keystroke still acts on it.
+    if (hadFocus) refocus(event.eventId);
+  }
+
+  /** Focuses the (first) block of an event once the grid has been redrawn. */
+  function refocus(eventId: string) {
+    let tries = 0;
+    const attempt = () => {
+      const block = document.querySelector<HTMLElement>(
+        `.event-block[data-event-id="${CSS.escape(eventId)}"]`,
+      );
+      if (block) block.focus({ preventScroll: true });
+      else if (++tries < 10) requestAnimationFrame(attempt);
+    };
+    requestAnimationFrame(attempt);
   }
 
   const onMove = (segment: Segment, column: GridColumn, startMin: number) => {
     const event = segment.event;
-    const target = movedTimes(event, { date: column.date, minutes: startMin }, tz);
+    // `segment` is the piece that was dragged: for a meeting across midnight the whole event moves with it.
+    const target = movedBySegment(event, segment, { date: column.date, minutes: startMin }, tz);
     const roomId = column.roomId ?? event.roomId;
     if (target.start === event.start && roomId === event.roomId) return;
     void change(
@@ -202,7 +259,7 @@ function CalendarScreen({
   /** A keyboard drop: the final column and times in one go (move and/or resize). */
   const onChange = (segment: Segment, column: GridColumn, startMin: number, endMin: number) => {
     const event = segment.event;
-    const target = rangeTimes(column.date, startMin, endMin, tz);
+    const target = changedBySegment(event, segment, { date: column.date, startMin, endMin }, tz);
     const roomId = column.roomId ?? event.roomId;
     if (target.start === event.start && target.end === event.end && roomId === event.roomId) return;
     void change(
@@ -250,7 +307,16 @@ function CalendarScreen({
   }
 
   const panel = useUi((s) => s.panel);
-  const editEvent = panel?.kind === 'edit' ? runtime?.findByKey(panel.key) : undefined;
+  /** Opens the edit panel for an occurrence, remembering what it looked like at that moment. */
+  function openEdit(key: string) {
+    const event = runtime?.findByKey(key);
+    if (event) useUi.getState().openPanel({ kind: 'edit', key, event });
+  }
+  // The live occurrence if it is still there; otherwise (somebody moved it, or our own move was
+  // confirmed under a new key) the one the panel was opened for. Either way the panel stays open: it
+  // holds typing that has not been saved.
+  const editEvent =
+    panel?.kind === 'edit' ? (runtime?.findByKey(panel.key) ?? panel.event) : undefined;
   const fetchBusy = async (from: number, to: number, signal: AbortSignal, except?: string) => {
     const period = await fetchPeriod(from, to, signal);
     return new Set(
@@ -263,12 +329,17 @@ function CalendarScreen({
   // Delete / Backspace removes the selected event (asking about the scope for a recurring one).
   useEffect(() => {
     const onKey = async (e: KeyboardEvent) => {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      const target = e.target;
       if (
-        (e.key !== 'Delete' && e.key !== 'Backspace') ||
-        (e.target instanceof HTMLElement &&
-          ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName))
+        target instanceof HTMLElement &&
+        (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) ||
+          target.isContentEditable ||
+          target.closest('dialog')) // the panel, settings, the scope question: never delete behind them
       )
         return;
+      const ui = useUi.getState();
+      if (ui.panel || ui.settingsOpen || ui.scopePrompt) return;
       const key = useUi.getState().selectedKey;
       const event = key ? runtime?.findByKey(key) : undefined;
       if (!event) return;
@@ -325,7 +396,7 @@ function CalendarScreen({
               onMove={onMove}
               onResize={onResize}
               onActivate={(key) => useUi.getState().select(key)}
-              onOpen={(key) => useUi.getState().openPanel({ kind: 'edit', key })}
+              onOpen={openEdit}
               onChange={onChange}
             />
           )}
@@ -344,6 +415,7 @@ function CalendarScreen({
               range={range}
               initial={initial.period}
               rooms={roomsById}
+              roomFilter={location.rooms}
               label={t('calendar.gridLabel')}
             />
           )}

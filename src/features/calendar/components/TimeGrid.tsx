@@ -187,7 +187,12 @@ function HourLabels({
     const shift = Math.sign(
       startOfDay({ y: other.y, m: other.m, d: other.d }, secondary) - startOfDay(date, secondary),
     );
-    return `${formatHour(other.h, clock, names.time)}${shift === 0 ? '' : shift > 0 ? ' +1' : ' −1'}`;
+    // A zone like India (+5:30) puts the hour on :30: show the minutes instead of rounding them away.
+    const text =
+      other.mi === 0
+        ? formatHour(other.h, clock, names.time)
+        : formatClock(other.h * 60 + other.mi, clock, names.time);
+    return `${text}${shift === 0 ? '' : shift > 0 ? ' +1' : ' −1'}`;
   };
   return (
     <div aria-hidden="true" className="relative" style={{ height: 24 * PX_PER_HOUR }}>

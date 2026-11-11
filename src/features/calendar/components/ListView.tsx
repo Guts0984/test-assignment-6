@@ -4,7 +4,7 @@ import { useQueries } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import type { RoomDto } from '@/shared/contracts';
-import { keys, fetchPeriod, type Period } from '@/features/events';
+import { keys, fetchPeriod, useRuntime, type Period } from '@/features/events';
 import { addDays, formatCivil, type Civil } from '@/shared/zoned';
 import { agenda } from '../domain/month';
 import { LIST_WINDOW_DAYS, rangeOf, type Range } from '../domain/range';
@@ -20,13 +20,17 @@ export function ListView({
   range,
   initial,
   rooms,
+  roomFilter,
   label,
 }: {
   range: Range;
   initial?: Period;
   rooms: ReadonlyMap<string, RoomDto>;
+  /** Room ids from the URL's `rooms=` filter; empty means every room (as in the other views). */
+  roomFilter: readonly string[];
   label: string;
 }) {
+  const runtime = useRuntime();
   const { tz, locale, clock, names, weekStart } = useEnv();
   const t = useTranslations('calendar');
   const select = useUi((s) => s.select);
@@ -43,14 +47,23 @@ export function ListView({
   const queries = useQueries({
     queries: ranges.map((r, i) => ({
       queryKey: keys.period(r.from, r.to),
-      queryFn: ({ signal }: { signal: AbortSignal }) => fetchPeriod(r.from, r.to, signal),
+      // Changes not yet sent are drawn over what the server says, here as everywhere else.
+      queryFn: async ({ signal }: { signal: AbortSignal }) => {
+        const period = await fetchPeriod(r.from, r.to, signal);
+        return runtime ? runtime.overlay(period) : period;
+      },
       initialData:
         i === 0 && initial && initial.from === r.from && initial.to === r.to ? initial : undefined,
       staleTime: 30_000,
     })),
   });
   const loaded = queries.every((q) => q.data);
-  const events = useMemo(() => queries.flatMap((q) => q.data?.events ?? []), [queries]);
+  const events = useMemo(() => {
+    const all = queries.flatMap((q) => q.data?.events ?? []);
+    if (roomFilter.length === 0) return all;
+    const wanted = new Set(roomFilter);
+    return all.filter((e) => wanted.has(e.roomId));
+  }, [queries, roomFilter]);
   const last = ranges[ranges.length - 1]!.days.at(-1) as Civil;
   const days = useMemo(
     () => agenda(events, tz, range.anchor, last),

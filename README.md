@@ -23,26 +23,31 @@ not seed again. Sign in with `ana@example.com` (Kyiv), `bob@example.com` (New Yo
 All configuration lives in `.env.example`. `src/server/core/env.ts` validates it with zod; only non-secrets have
 defaults.
 
+`docker compose up` does not publish PostgreSQL on the host (so a PostgreSQL already running on port 5432
+cannot stop it); `pnpm db:up` adds `docker-compose.dev.yml`, which does, for development and the
+integration tests. The `web` container has a health check, and its entrypoint restarts the container if the
+server stops answering (Docker alone only restarts a process that has exited).
+
 ### Development
 
 ```bash
 pnpm install
-pnpm db:up                # postgres from docker compose
+pnpm db:up                # postgres from docker compose, published on 127.0.0.1:5432 (docker-compose.dev.yml)
 pnpm dev
 ```
 
 ## Tests
 
-| What                                            | Command                                                         | Notes                                                                                                            |
-| ----------------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| lint, types, formatting                         | `pnpm lint`, `pnpm typecheck`, `pnpm format:check`              | ESLint also enforces the module boundaries and bans `any`, `Date` for zone maths, classes                        |
-| unit + component (Vitest, Testing Library, MSW) | `pnpm test:unit`                                                | pure logic, sync engine, hooks against the mocked API                                                            |
-| integration (real PostgreSQL)                   | `pnpm test:int`                                                 | needs `pnpm db:up`; each run uses its own temporary database (parallel runs are safe); races, DST, series scopes |
-| Storybook + interaction tests                   | `pnpm storybook`; `pnpm build-storybook && pnpm test-storybook` | the second one serves the static build on :6006 first                                                            |
-| e2e (Playwright, 3 browsers)                    | `BASE_URL=http://localhost:3000 pnpm exec playwright test`      | against a running stack; repeatable on the same stack without a restart                                          |
-| screenshot tests                                | `pnpm test:screenshots`                                         | 3 browsers × light/dark; baselines come from the Playwright Docker image (see below)                             |
-| first-load JS budget                            | `node scripts/measure-js.mjs http://localhost:3000`             | gzip size of every script the calendar loads                                                                     |
-| Lighthouse CI                                   | `pnpm lighthouse`                                               | performance ≥ 90, accessibility = 100, scripts ≤ 200 KB                                                          |
+| What                                            | Command                                                    | Notes                                                                                                                                                                      |
+| ----------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| lint, types, formatting                         | `pnpm lint`, `pnpm typecheck`, `pnpm format:check`         | ESLint also enforces the module boundaries and bans `any`, `Date` for zone maths, classes                                                                                  |
+| unit + component (Vitest, Testing Library, MSW) | `pnpm test:unit`                                           | pure logic, sync engine, hooks against the mocked API                                                                                                                      |
+| integration (real PostgreSQL)                   | `pnpm test:int`                                            | needs `pnpm db:up`; each run uses its own temporary database (parallel runs are safe); races, DST, series scopes                                                           |
+| Storybook + interaction tests                   | `pnpm storybook`; `pnpm test-storybook`                    | builds Storybook, serves the static build on :6006 and runs every story's interaction test (never run it against the dev server: a cold Vite start reloads pages mid-test) |
+| e2e (Playwright, 3 browsers)                    | `BASE_URL=http://localhost:3000 pnpm exec playwright test` | against a running stack; repeatable on the same stack without a restart                                                                                                    |
+| screenshot tests                                | `pnpm test:screenshots`                                    | 3 browsers × light/dark; baselines come from the Playwright Docker image (see below)                                                                                       |
+| first-load JS budget                            | `node scripts/measure-js.mjs http://localhost:3000`        | gzip size of every script the calendar loads                                                                                                                               |
+| Lighthouse CI                                   | `pnpm lighthouse`                                          | performance ≥ 90, accessibility = 100, scripts ≤ 200 KB                                                                                                                    |
 
 Screenshot baselines depend on fonts and anti-aliasing, so they are produced and compared inside
 `mcr.microsoft.com/playwright:v1.65.0-noble` (CI does the same). To refresh them after an intended visual change:
@@ -184,8 +189,9 @@ What made it fit:
 - **Next.js 16** (the assignment says 15+). pnpm 12, Node 24.
 - **Locale and zone come from the profile** (cookie session), not from the URL; the URL holds view, date and rooms.
 - **Auth** is a minimal session (scrypt passwords, HMAC-hashed session tokens in the database, httpOnly cookie).
-  The assignment does not ask for roles or rate limiting, so there are none; every signed-in user may edit any
-  event (the creator and attendees are recorded and shown).
+  Sign-in is rate limited (10 failures per e-mail address and 100 per network address in 15 minutes, in memory
+  per server process: it slows guessing down, a shared store would be needed to count across servers). There are
+  no roles; every signed-in user may edit any event (the creator and attendees are recorded and shown).
 - **The conflict screen only appears for offline commands**; an online conflict is a rejection with the blocking
   event named, as the assignment describes for the two-browser case.
 - **Recurring events cannot be expanded in the browser** (that would need `rrule` in the first load): when a
@@ -195,4 +201,20 @@ What made it fit:
 - **Screenshot baselines** are tied to the Playwright image version; bump the image tag, `@playwright/test` and
   the baselines together.
 - **Performance numbers** come from one machine; CI asserts the budgets, not these exact values.
-- **Not implemented**: rate limiting, roles, e-mail invitations, attachments (not in the assignment).
+- **Series edits.** Moving a whole series carries its exceptions along (a removed occurrence stays removed,
+  an "only this" edit stays attached); they are dropped only if the rule or zone changes. "This and following"
+  moves the "only this" edits of the continuing part to the new series. A series cannot be split at an
+  occurrence that a clock change pushed to another time of day (03:30 on a night without a 03:30): the new
+  series would keep the pushed time for good, so the server refuses with a 400 and the neighbouring
+  occurrence works.
+- **Undo of "only this".** The server decides the id of the detached event, so undo is possible only once it
+  has answered (offline, a message asks to wait until the change is saved).
+- **Offline.** The service worker downloads every build file when it is installed (list generated after the
+  build), so the lazily loaded panel, dialogs and repeat editor open offline too. The page itself does not
+  load them early, so the first-load budget is unaffected. If one still cannot be loaded, a message is shown
+  instead of an error page. The queue in IndexedDB is kept per tab; a tab adopts the queue of tabs that
+  were closed with changes still waiting (Web Locks tell which tabs are alive).
+- **Second time axis** shows the hours of the first visible day. For a zone with a half-hour offset the
+  minutes are shown; if one of the two zones changes its clock in the middle of the week, the later days of
+  that week are off by an hour on that axis (the main axis and the events are always right).
+- **Not implemented**: roles, e-mail invitations, attachments (not in the assignment).

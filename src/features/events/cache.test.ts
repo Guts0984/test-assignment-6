@@ -187,7 +187,9 @@ describe('mergeChange: series', () => {
       name,
     );
     expect(needsRefetch).toBe(true);
-    expect(period.events).toEqual([]); // stale occurrences of the old series are dropped until the refetch lands
+    // What is on screen stays until the refetch lands: removing it first made the series blink away after
+    // every edit of it, our own included.
+    expect(period.events.map((e) => e.eventId)).toEqual(['s1']);
   });
 
   it('a series that starts after the period cannot affect it: no refetch', () => {

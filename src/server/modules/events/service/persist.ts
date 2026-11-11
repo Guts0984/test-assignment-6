@@ -38,14 +38,19 @@ export const lockRooms = (tx: Tx, roomIds: string[]) =>
   );
 
 /** The database refused a booking; the 409 (with who is in the way) is built after the rollback. */
-export const abortRoomClash = (roomId: string, ranges: string[]): never =>
-  abortWith((db) => roomConflictError(db, roomId, ranges));
+export const abortRoomClash = (
+  roomId: string,
+  ranges: string[],
+  except: readonly string[] = [],
+): never => abortWith((db) => roomConflictError(db, roomId, ranges, except));
 
 export async function insertOccurrenceRows(
   tx: Tx,
   eventId: string,
   roomId: string,
   ranges: string[],
+  /** Other events that are part of this change (the ones being replaced): not blockers either. */
+  replaced: readonly string[] = [],
 ): Promise<void> {
   try {
     for (let i = 0; i < ranges.length; i += 500) {
@@ -54,13 +59,18 @@ export async function insertOccurrenceRows(
         .values(ranges.slice(i, i + 500).map((during) => ({ eventId, roomId, during })));
     }
   } catch (e) {
-    if (isRoomClash(e)) abortRoomClash(roomId, ranges);
+    if (isRoomClash(e)) abortRoomClash(roomId, ranges, [eventId, ...replaced]);
     throw e;
   }
 }
 
 /** Rebuilds the occurrences of an event from its row. Old rows must already be deleted. */
-export const materialize = (tx: Tx, row: EventRow, now: Temporal.Instant) =>
+export const materialize = (
+  tx: Tx,
+  row: EventRow,
+  now: Temporal.Instant,
+  replaced: readonly string[] = [],
+) =>
   insertOccurrenceRows(
     tx,
     row.id,
@@ -69,6 +79,7 @@ export const materialize = (tx: Tx, row: EventRow, now: Temporal.Instant) =>
       sourceOf(row),
       row.materializedUntil ? parseInstant(row.materializedUntil) : horizonFrom(now),
     ),
+    replaced,
   );
 
 export const clearOccurrences = (tx: Tx, eventId: string) =>

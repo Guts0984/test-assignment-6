@@ -19,9 +19,22 @@ export const MAX_ATTENDEES = 50;
  * ISO 8601 instant WITH an offset or Z; normalized to UTC `...Z`.
  * One transform (not refine + transform): zod keeps running transforms after a failed refine.
  */
+const MIN_INSTANT = Temporal.Instant.from('1970-01-01T00:00:00Z');
+const MAX_INSTANT = Temporal.Instant.from('2200-01-01T00:00:00Z');
+
 const instant = z.string().transform((s, ctx) => {
   try {
-    return Temporal.Instant.from(s).toString();
+    const value = Temporal.Instant.from(s);
+    // Temporal accepts years about +-270 000, but the arithmetic on them (zones, rules) throws: that
+    // used to surface as a 500. Nobody books a room in the year 9999.
+    if (
+      Temporal.Instant.compare(value, MIN_INSTANT) < 0 ||
+      Temporal.Instant.compare(value, MAX_INSTANT) >= 0
+    ) {
+      ctx.addIssue({ code: 'custom', message: 'must be between the years 1970 and 2199' });
+      return z.NEVER;
+    }
+    return value.toString();
   } catch {
     ctx.addIssue({
       code: 'custom',
@@ -31,13 +44,21 @@ const instant = z.string().transform((s, ctx) => {
   }
 });
 
+const noNul = (s: string) => !s.includes('\u0000');
 const uuid = z.uuid();
 const timeZone = z.string().refine(isValidTimeZone, 'must be an IANA time zone');
 
 const fields = {
   roomId: uuid,
-  title: z.string().trim().min(1).max(200),
-  description: z.string().max(5000),
+  // Postgres cannot store a NUL character in text: refuse it here instead of failing with a 500.
+  title: z
+    .string()
+    .refine(noNul, 'must not contain a NUL character')
+    .pipe(z.string().trim().min(1).max(200)),
+  description: z
+    .string()
+    .refine(noNul, 'must not contain a NUL character')
+    .pipe(z.string().max(5000)),
   startAt: instant,
   endAt: instant,
   allDay: z.boolean(),
@@ -137,9 +158,48 @@ export function checkEventShape(src: RecurringSource): ShapeIssue | null {
   return src.rrule === null ? null : checkRule(src, src.rrule);
 }
 
+const DAY = '(MO|TU|WE|TH|FR|SA|SU)';
+/** What each part of a rule may look like. Anything else (unknown parts, odd numbers) is refused. */
+const RULE_PARTS: Record<string, RegExp> = {
+  FREQ: /^(DAILY|WEEKLY|MONTHLY)$/,
+  // 1..99, the same range the form offers.
+  INTERVAL: /^[1-9][0-9]?$/,
+  COUNT: /^[1-9][0-9]{0,3}$/,
+  UNTIL: /^[0-9]{8}(T[0-9]{6}Z?)?$/,
+  BYDAY: new RegExp(`^([+-]?[1-5])?${DAY}(,([+-]?[1-5])?${DAY})*$`),
+  BYMONTHDAY: /^[+-]?([1-9]|[12][0-9]|3[01])(,[+-]?([1-9]|[12][0-9]|3[01]))*$/,
+};
+
+/** A list may not be longer than there are distinct values (a repeated day only inflates the work). */
+const MAX_LIST_ITEMS: Record<string, number> = { BYDAY: 7, BYMONTHDAY: 31 };
+
+/** A series may not end more than this many years after it starts: UNTIL=9999 would expand for ages. */
+export const MAX_RULE_YEARS = 10;
+
+/** A strict, whitelist check of `NAME=value;...`: known names once each, values in range. */
+export function ruleSyntaxProblem(rrule: string): string | null {
+  const seen = new Set<string>();
+  for (const part of rrule.split(';')) {
+    const [name = '', value = '', ...extra] = part.split('=');
+    const pattern = RULE_PARTS[name];
+    if (!pattern) return `unsupported rule part "${name}"`;
+    if (extra.length > 0 || !pattern.test(value)) return `invalid ${name}`;
+    if (name in MAX_LIST_ITEMS && value.split(',').length > (MAX_LIST_ITEMS[name] ?? 0)) {
+      return `too many values in ${name}`;
+    }
+    if (seen.has(name)) return `${name} given twice`;
+    seen.add(name);
+  }
+  return seen.has('FREQ') ? null : 'FREQ is required';
+}
+
 function checkRule(src: RecurringSource, rrule: string): ShapeIssue | null {
   const bad = (message: string): ShapeIssue => ({ path: 'rrule', message });
   if (!/^[A-Z0-9=;,+-]+$/.test(rrule)) return bad('malformed rule (use e.g. FREQ=WEEKLY;BYDAY=MO)');
+  // Every part is checked here, BEFORE the rrule library sees the string: it trusts its input, and a
+  // negative INTERVAL makes it loop forever (which would freeze the whole server).
+  const syntax = ruleSyntaxProblem(rrule);
+  if (syntax) return bad(syntax);
   let options;
   try {
     options = RRule.parseString(rrule);
@@ -152,8 +212,21 @@ function checkRule(src: RecurringSource, rrule: string): ShapeIssue | null {
   }
   if (!startMatchesRule(src)) return bad('startAt must be the first occurrence of the rule');
   if (isFiniteRule(rrule)) {
+    // UNTIL is a wall-clock bound in the event zone: refuse one that is absurdly far from the start.
+    if (options.until) {
+      const until = Temporal.PlainDate.from({
+        year: options.until.getUTCFullYear(),
+        month: options.until.getUTCMonth() + 1,
+        day: options.until.getUTCDate(),
+      });
+      const first = wallClock(parseInstant(src.startAt), src.tzid).toPlainDate();
+      if (Temporal.PlainDate.compare(until, first.add({ years: MAX_RULE_YEARS })) > 0) {
+        return bad(`UNTIL must be within ${MAX_RULE_YEARS} years of the start`);
+      }
+    }
     try {
-      if (expandAll(src).length > MAX_FINITE_OCCURRENCES) {
+      // Stop one past the limit: all we need to know is whether it is exceeded.
+      if (expandAll(src, MAX_FINITE_OCCURRENCES + 1).length > MAX_FINITE_OCCURRENCES) {
         return bad(`a series is limited to ${MAX_FINITE_OCCURRENCES} occurrences`);
       }
     } catch {

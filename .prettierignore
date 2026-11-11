@@ -6,3 +6,4 @@ playwright-report
 storybook-static
 src/server/core/db/migrations
 .lighthouseci
+public/precache.js

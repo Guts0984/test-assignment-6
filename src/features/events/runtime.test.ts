@@ -575,6 +575,72 @@ describe('series edits', () => {
     });
   });
 
+  it('undo of "only this" before the server has answered does not touch the series; it works once the answer is in', async () => {
+    const h = setup();
+    h.seedEvent('s', 9, 10, { rrule: 'FREQ=DAILY;COUNT=3' });
+    const sent: { kind: string; eventId: string; scope?: string }[] = [];
+    h.server.transport.send = async (c) => {
+      sent.push({
+        kind: c.kind,
+        eventId: c.eventId,
+        scope: c.kind === 'update' ? c.body.scope : undefined,
+      });
+      if (c.kind === 'update' && c.body.scope === 'this') {
+        const master = h.server.events.get('s')!;
+        const detached = {
+          ...master,
+          id: 'detached-1',
+          rrule: null,
+          seriesId: 's',
+          originalStart: c.body.occurrenceStart ?? null,
+          startAt: c.body.startAt!,
+          endAt: c.body.endAt!,
+          version: 1,
+        };
+        h.server.events.set('detached-1', detached);
+        h.server.events.set('s', { ...master, version: master.version + 1 });
+        return {
+          type: 'ok',
+          result: { events: [h.server.events.get('s')!, detached], deletedEventIds: [] },
+        };
+      }
+      const target = h.server.events.get(c.eventId)!;
+      if (c.kind === 'update') {
+        h.server.events.set(c.eventId, {
+          ...target,
+          startAt: c.body.startAt ?? target.startAt,
+          endAt: c.body.endAt ?? target.endAt,
+          version: target.version + 1,
+        });
+      }
+      return {
+        type: 'ok',
+        result: { events: [h.server.events.get(c.eventId)!], deletedEventIds: [] },
+      };
+    };
+    const release = h.hold(); // the network is not answering (offline): the change waits
+    h.runtime.actions.change(
+      h.event('s'),
+      { start: parseInstant(iso(14))!, end: parseInstant(iso(15))! },
+      'this',
+    );
+
+    h.runtime.actions.undo(); // pressed before the server has said which event it created
+    expect(h.notices.at(-1)).toMatchObject({ kind: 'info', code: 'UNDO_WAIT' });
+    expect(h.runtime.history.get().past).toHaveLength(1); // the entry is kept, not lost
+
+    release();
+    await h.runtime.engine.whenIdle();
+    // Nothing but the one edit reached the server: in particular no unscoped update of the series.
+    expect(sent).toEqual([{ kind: 'update', eventId: 's', scope: 'this' }]);
+
+    h.runtime.actions.undo(); // now the target is known: the detached event goes back, the series stays
+    await h.runtime.engine.whenIdle();
+    expect(sent.at(-1)).toEqual({ kind: 'update', eventId: 'detached-1', scope: undefined });
+    expect(h.server.events.get('detached-1')?.startAt).toBe(iso(9));
+    expect(h.server.events.get('s')?.startAt).toBe(iso(9)); // the series was never rewritten
+  });
+
   it('a series split ("this and following") cannot be undone: the user is told, not silently ignored', async () => {
     const h = setup();
     h.seedEvent('s', 9, 10, { rrule: 'FREQ=DAILY;COUNT=3' });

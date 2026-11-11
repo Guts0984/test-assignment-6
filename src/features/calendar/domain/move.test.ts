@@ -2,7 +2,16 @@
 import { describe, expect, it } from 'vitest';
 import { formatInstant, parseInstant } from '@/shared/zoned';
 import { clampMinutes, dragRange, minutesToPx, pxToMinutes, snapMinutes } from './grid';
-import { instantAt, movedTimes, rangeTimes, resizedTimes, shiftSeriesTimes } from './move';
+import {
+  changedBySegment,
+  instantAt,
+  movedBySegment,
+  movedTimes,
+  rangeTimes,
+  resizedTimes,
+  shiftSeriesTimes,
+} from './move';
+import { segmentsOf } from './segments';
 import { makeEvent } from '@/shared/calendar/test-utils';
 
 const iso = (ms: number) => formatInstant(ms);
@@ -147,5 +156,95 @@ describe('shiftSeriesTimes (moving a whole series by dragging one occurrence)', 
       tzid: kyiv,
     });
     expect(iso(t.start)).toBe('2026-03-03T07:00:00Z');
+  });
+});
+
+describe('a meeting across midnight keeps its length when a piece of it is moved', () => {
+  const TZ = 'Europe/Kyiv'; // UTC+2 in December
+  // Tue 22:00 -> Wed 10:00 Kyiv: two pieces, 2 h on Tuesday and 10 h on Wednesday.
+  const event = makeEvent('2026-12-01T20:00:00Z', '2026-12-02T08:00:00Z', { tzid: TZ });
+  const [first, second] = segmentsOf(event, TZ) as [
+    ReturnType<typeof segmentsOf>[number],
+    ReturnType<typeof segmentsOf>[number],
+  ];
+  const shown = (t: { start: number; end: number }) => [iso(t.start), iso(t.end)];
+
+  it('has the two pieces we think it has', () => {
+    expect([first.startMin, first.endMin, first.continuesAfter]).toEqual([1320, 1440, true]);
+    expect([second.startMin, second.endMin, second.continuesAfter]).toEqual([0, 600, false]);
+  });
+
+  it('dragging the SECOND piece one hour later moves the whole meeting one hour (was: 12 hours)', () => {
+    const t = movedBySegment(event, second, { date: day(2026, 12, 2), minutes: 60 }, TZ);
+    expect(shown(t)).toEqual(['2026-12-01T21:00:00Z', '2026-12-02T09:00:00Z']);
+  });
+
+  it('dragging the second piece to the next day moves the meeting by exactly a day', () => {
+    const t = movedBySegment(event, second, { date: day(2026, 12, 3), minutes: 0 }, TZ);
+    expect(shown(t)).toEqual(['2026-12-02T20:00:00Z', '2026-12-03T08:00:00Z']);
+  });
+
+  it('dragging the FIRST piece behaves as before: the start lands where it was dropped', () => {
+    const t = movedBySegment(event, first, { date: day(2026, 12, 1), minutes: 1380 }, TZ);
+    expect(shown(t)).toEqual(['2026-12-01T21:00:00Z', '2026-12-02T09:00:00Z']);
+    expect(t).toEqual(movedTimes(event, { date: day(2026, 12, 1), minutes: 1380 }, TZ));
+  });
+
+  it('a single-day meeting is moved exactly as movedTimes always did', () => {
+    const one = makeEvent('2026-12-01T08:00:00Z', '2026-12-01T09:30:00Z', { tzid: TZ });
+    const [seg] = segmentsOf(one, TZ);
+    const target = { date: day(2026, 12, 4), minutes: 11 * 60 + 15 };
+    expect(movedBySegment(one, seg!, target, TZ)).toEqual(movedTimes(one, target, TZ));
+  });
+
+  it('keyboard: moving the second piece shifts the whole meeting instead of cutting it to that day', () => {
+    // The piece went from 00:00-10:00 to 01:00-11:00 on Wednesday.
+    const t = changedBySegment(
+      event,
+      second,
+      { date: day(2026, 12, 2), startMin: 60, endMin: 660 },
+      TZ,
+    );
+    expect(shown(t)).toEqual(['2026-12-01T21:00:00Z', '2026-12-02T09:00:00Z']);
+    expect(t.end - t.start).toBe(event.end - event.start); // nothing lost
+  });
+
+  it('keyboard: moving the first piece keeps the length too (was: cut off at midnight)', () => {
+    const t = changedBySegment(
+      event,
+      first,
+      { date: day(2026, 12, 1), startMin: 1290, endMin: 1410 },
+      TZ,
+    );
+    expect(shown(t)).toEqual(['2026-12-01T19:30:00Z', '2026-12-02T07:30:00Z']);
+  });
+
+  it('keyboard: lengthening the LAST piece moves only the end', () => {
+    const t = changedBySegment(
+      event,
+      second,
+      { date: day(2026, 12, 2), startMin: 0, endMin: 660 },
+      TZ,
+    );
+    expect(shown(t)).toEqual(['2026-12-01T20:00:00Z', '2026-12-02T09:00:00Z']);
+  });
+
+  it('keyboard: a piece that continues has no end of its own, so lengthening it changes nothing', () => {
+    const t = changedBySegment(
+      event,
+      first,
+      { date: day(2026, 12, 1), startMin: 1320, endMin: 1440 - 15 },
+      TZ,
+    );
+    expect([t.start, t.end]).toEqual([event.start, event.end]);
+  });
+
+  it('keyboard: a single-day meeting gives the same result as rangeTimes', () => {
+    const one = makeEvent('2026-12-01T08:00:00Z', '2026-12-01T09:00:00Z', { tzid: TZ });
+    const [seg] = segmentsOf(one, TZ);
+    const target = { date: day(2026, 12, 2), startMin: 600, endMin: 720 };
+    expect(changedBySegment(one, seg!, target, TZ)).toEqual(
+      rangeTimes(target.date, target.startMin, target.endMin, TZ),
+    );
   });
 });

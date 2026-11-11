@@ -306,7 +306,7 @@ describe('recurring edits: only this / this and following / all (acceptance #12)
     expect(occ.every((o) => o.title === 'Later start')).toBe(true);
   });
 
-  it('"all" with a new time also drops earlier "only this" edits (they referred to the old times)', async () => {
+  it('"all" with a new time carries earlier "only this" edits and removed occurrences along', async () => {
     const ev = created(await post('ana', weekly()));
     const one = await patch('ana', ev.id, {
       version: 1,
@@ -315,17 +315,25 @@ describe('recurring edits: only this / this and following / all (acceptance #12)
       title: 'once',
     });
     const exceptionId = one.body.events[1].id;
+    // One hour later on the wall clock (09:00 -> 10:00 Kyiv).
     const r = await patch('ana', ev.id, {
       version: 2,
       scope: 'all',
       startAt: '2026-03-02T08:00:00Z',
       endAt: '2026-03-02T09:00:00Z',
     });
-    expect(r.body.deletedEventIds).toEqual([exceptionId]);
-    expect(r.body.events[0].exdates).toEqual([]);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(r.body.deletedEventIds).toEqual([]);
+    // The removed occurrence is still removed, one hour later like the rest of the series.
+    expect(r.body.events[0].exdates).toEqual(['2026-04-06T07:00:00Z']);
     const occ = await occurrences(...ALL_2026);
-    expect(occ).toHaveLength(10);
-    expect(occ.some((o) => o.title === 'once')).toBe(false);
+    expect(occ).toHaveLength(10); // nine in the series and the one edited occurrence
+    expect(occ.filter((o) => o.title === 'once')).toHaveLength(1);
+    expect(occ.some((o) => o.eventId === exceptionId)).toBe(true);
+    // No occurrence of the series comes back at the old slot of the removed one.
+    expect(
+      occ.filter((o) => o.start === '2026-04-06T07:00:00Z' && o.title !== 'once'),
+    ).toHaveLength(0);
   });
 
   it('"all" without a time change keeps "only this" edits', async () => {

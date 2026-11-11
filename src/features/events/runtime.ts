@@ -140,10 +140,17 @@ export function createEventsRuntime(deps: RuntimeDeps) {
       else if (eventId) updatePeriods(client, (p) => removeOccurrences(p, { eventId }));
     },
   };
+  /** Somebody else changed an event while I had unsent changes for it: refetch once the queue is empty. */
+  let reconcileWhenIdle = false;
   const engine: SyncEngine = createSyncEngine(
     { storage: deps.storage, transport: deps.transport, schedule: deps.schedule },
     handlers,
   );
+  engine.subscribe(() => {
+    if (!reconcileWhenIdle || engine.getState().pending > 0) return;
+    reconcileWhenIdle = false;
+    void client.invalidateQueries({ queryKey: keys.periods });
+  });
 
   function applyServerResult(result: MutationResult, eventId: string): void {
     updatePeriods(client, (p) => {
@@ -201,8 +208,16 @@ export function createEventsRuntime(deps: RuntimeDeps) {
     );
     const entry =
       history.past.find((e) => e.id === entryId) ?? history.future.find((e) => e.id === entryId);
-    if (detached && entry?.undo?.kind === 'update')
-      setHistory(amend(history, entryId, { undo: { ...entry.undo, eventId: detached.id } }));
+    if (!entry) return;
+    setHistory(
+      amend(
+        history,
+        entryId,
+        detached && entry.undo?.kind === 'update'
+          ? { undo: { ...entry.undo, eventId: detached.id }, awaiting: false }
+          : { awaiting: false },
+      ),
+    );
   }
 
   const dropEntry = (entryId: string) =>
@@ -299,6 +314,20 @@ export function createEventsRuntime(deps: RuntimeDeps) {
               : removeOccurrences(p, { eventId: intent.eventId });
     }
   }
+
+  /**
+   * Which occurrence a queued command is about. "Only this" edits and deletes name one occurrence of a
+   * series; replaying them without it would hit the whole series (a delete would hide all of it).
+   */
+  const occurrenceKeyOf = (c: Command): string | undefined => {
+    const start =
+      c.kind === 'update'
+        ? c.body.occurrenceStart
+        : c.kind === 'delete'
+          ? c.occurrenceStart
+          : undefined;
+    return start ? eventKey(c.eventId, start) : undefined;
+  };
 
   const intentOf = (c: Command): Intent =>
     c.kind === 'create'
@@ -401,6 +430,8 @@ export function createEventsRuntime(deps: RuntimeDeps) {
         label,
         undo: undoable ? { kind: 'update', eventId: event.eventId, body: undoBody } : null,
         redo: { kind: 'update', eventId: event.eventId, body },
+        // The undo above would address the whole series until the server names the detached event.
+        ...(recurring && scope === 'this' ? { awaiting: true } : {}),
       };
       record_(entry);
       perform({ kind: 'update', eventId: event.eventId, body }, { key: event.key, label, entry });
@@ -436,6 +467,12 @@ export function createEventsRuntime(deps: RuntimeDeps) {
     },
 
     undo(): void {
+      const top = history.past[history.past.length - 1];
+      if (top?.awaiting) {
+        // Not popped: the entry stays, and works as soon as the server has answered.
+        notifier.notify({ kind: 'info', code: 'UNDO_WAIT', params: { label: top.label } });
+        return;
+      }
       const popped = popUndo(history);
       if (!popped) return;
       setHistory(popped.history);
@@ -472,6 +509,14 @@ export function createEventsRuntime(deps: RuntimeDeps) {
       const mine = (id: string) => engine.pendingFor(id);
       const changed = message.changed.filter((e) => !mine(e.id));
       const deleted = message.deletedEventIds.filter((id) => !mine(id));
+      // What somebody else did to an event I still have unsent changes for is not drawn now (it would
+      // overwrite my pending version), but it must not be lost either: reconcile with the server as
+      // soon as my changes are through (see the engine subscription above).
+      if (
+        changed.length < message.changed.length ||
+        deleted.length < message.deletedEventIds.length
+      )
+        reconcileWhenIdle = true;
       if (changed.length === 0 && deleted.length === 0) return;
       updatePeriods(client, (p) => {
         const merged = mergeChange(p, { changed, deletedEventIds: deleted }, creatorName);
@@ -482,10 +527,13 @@ export function createEventsRuntime(deps: RuntimeDeps) {
     },
     /** Puts still-unsent changes on top of a freshly fetched period, so a refetch or reload never hides them. */
     overlay: (period: Period): Period =>
-      engine.pendingCommands().reduce((p, c) => optimisticFn(intentOf(c))(p), period),
+      engine
+        .pendingCommands()
+        .reduce((p, c) => optimisticFn(intentOf(c), occurrenceKeyOf(c))(p), period),
     /** Re-draws queued changes after the queue was loaded from storage (page reload). */
     restoreFromQueue(): void {
-      for (const c of engine.pendingCommands()) updatePeriods(client, optimisticFn(intentOf(c)));
+      for (const c of engine.pendingCommands())
+        updatePeriods(client, optimisticFn(intentOf(c), occurrenceKeyOf(c)));
     },
     findByKey: (key: string) => findByKey(client, key),
     periods: () => allPeriods(client),

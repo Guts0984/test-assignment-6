@@ -79,11 +79,13 @@ export function useUsers(initial: DirectoryUser[]) {
 export const prefetchPeriods = (
   client: QueryClient,
   ranges: { from: number; to: number }[],
+  /** Draws changes that are not sent yet over what was fetched (see runtime.overlay). */
+  overlay: (period: Period) => Period = (p) => p,
 ): void => {
   for (const r of ranges) {
     void client.prefetchQuery({
       queryKey: keys.period(r.from, r.to),
-      queryFn: ({ signal }) => fetchPeriod(r.from, r.to, signal),
+      queryFn: async ({ signal }) => overlay(await fetchPeriod(r.from, r.to, signal)),
       staleTime: 30_000,
     });
   }
@@ -91,16 +93,17 @@ export const prefetchPeriods = (
 
 export function usePrefetch(ranges: { from: number; to: number }[], ready: boolean): void {
   const client = useQueryClient();
+  const runtime = useRuntime();
   const signature = ranges.map((r) => `${r.from}-${r.to}`).join();
   useEffect(() => {
     if (!ready) return;
     // Wait for the browser to be idle so prefetching never competes with what the user is doing.
     const id = (window.requestIdleCallback ?? ((fn: () => void) => window.setTimeout(fn, 200)))(
-      () => prefetchPeriods(client, ranges),
+      () => prefetchPeriods(client, ranges, runtime?.overlay),
     );
     return () => (window.cancelIdleCallback ?? window.clearTimeout)(id as number);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `signature` stands for the contents of `ranges`
-  }, [client, ready, signature]);
+  }, [client, ready, signature, runtime]);
 }
 
 /** One event (the master of a series) as the server has it. */

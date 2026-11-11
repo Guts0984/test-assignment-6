@@ -1,6 +1,6 @@
 import type { NextRequest, NextResponse } from 'next/server';
 import { authorize, isDenied, type AuthDeps } from '@/server/modules/auth/http';
-import type { Bus } from '../bus';
+import type { Bus, Message } from '../bus';
 import { formatControl, formatMessage, formatPing, formatRetry } from '../sse';
 
 export type StreamDeps = {
@@ -24,6 +24,10 @@ export const makeStreamHandler =
     if (isDenied(ctx)) return ctx;
 
     const bus = deps.bus();
+    // A client id is a capability ("ignore messages tagged with this id"): only its owner sees it, so
+    // nobody else can learn it and use it to hide their own changes from that tab.
+    const forMe = (m: Message): Message =>
+      m.originUser === ctx.user.id ? m : { ...m, origin: null };
     const maxBacklog = deps.maxBacklog ?? 100;
     const lastEventId = req.headers.get('last-event-id') ?? undefined;
     let cleanup = () => {};
@@ -56,8 +60,8 @@ export const makeStreamHandler =
         const unsubscribe = bus.subscribe((m) => {
           if (seen.has(m.id)) return;
           seen.add(m.id);
-          if (replaying) queue.push(formatMessage(m));
-          else send(formatMessage(m));
+          if (replaying) queue.push(formatMessage(forMe(m)));
+          else send(formatMessage(forMe(m)));
         });
 
         const replay = bus.replay(lastEventId);
@@ -67,12 +71,19 @@ export const makeStreamHandler =
           for (const m of replay.messages) {
             if (seen.has(m.id)) continue;
             seen.add(m.id);
-            send(formatMessage(m));
+            send(formatMessage(forMe(m)));
           }
         replaying = false;
         for (const text of queue) send(text);
 
-        const heartbeat = setInterval(() => send(formatPing()), deps.heartbeatMs);
+        // The stream ends with the session: signing out (or an expired session) must not leave a
+        // connection that keeps receiving everybody's changes.
+        const heartbeat = setInterval(() => {
+          void authorize(deps.auth, req, { mutating: false }).then(
+            (still) => (isDenied(still) ? close() : send(formatPing())),
+            () => send(formatPing()),
+          );
+        }, deps.heartbeatMs);
         cleanup = () => {
           clearInterval(heartbeat);
           unsubscribe();

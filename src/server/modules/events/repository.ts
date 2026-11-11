@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import type { Exec } from '@/server/core/db';
 import { users } from '@/server/modules/auth';
 import { parseInstant, toRange, type RecurringSource } from '@/shared/time';
@@ -94,7 +94,13 @@ export async function listOccurrences(db: Exec, q: ListArgs): Promise<Occurrence
 }
 
 /** Bookings in `roomId` that overlap any of the given `[start,end)` ranges: who is in the way. */
-export async function findBlockers(db: Exec, roomId: string, ranges: string[]): Promise<Blocker[]> {
+export async function findBlockers(
+  db: Exec,
+  roomId: string,
+  ranges: string[],
+  /** Events that are the subject of the failed change (and what it replaced): never their own blockers. */
+  except: readonly string[] = [],
+): Promise<Blocker[]> {
   if (ranges.length === 0) return [];
   const overlapsAny = sql.join(
     ranges.map((r) => sql`${eventOccurrences.during} && ${r}::tstzrange`),
@@ -112,7 +118,13 @@ export async function findBlockers(db: Exec, roomId: string, ranges: string[]): 
     .from(eventOccurrences)
     .innerJoin(events, eq(events.id, eventOccurrences.eventId))
     .innerJoin(users, eq(users.id, events.creatorId))
-    .where(and(eq(eventOccurrences.roomId, roomId), sql`(${overlapsAny})`))
+    .where(
+      and(
+        eq(eventOccurrences.roomId, roomId),
+        sql`(${overlapsAny})`,
+        except.length > 0 ? notInArray(events.id, [...except]) : undefined,
+      ),
+    )
     .orderBy(sql`lower(${eventOccurrences.during})`)
     .limit(5);
   return rows.map((r) => ({

@@ -12,5 +12,5 @@ export const makeCreateEventHandler =
     if (isDenied(ctx)) return ctx;
     const body = await parseBody(req, createEventSchema);
     if (!body.ok) return body.response;
-    return respondAndPublish(req, await createEvent(deps.db(), ctx, body.data), 201);
+    return respondAndPublish(req, await createEvent(deps.db(), ctx, body.data), 201, ctx.user.id);
   };

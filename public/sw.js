@@ -1,17 +1,48 @@
+/* global importScripts */
 /* Offline support: lets the calendar page load while the network is down, so the queued changes
  * (kept in IndexedDB) can be shown again and sent later. API calls are never cached: the app itself
  * handles their failure (it queues the change). */
 const STATIC = 'static-v1';
 const PAGES = 'pages-v1';
 
-self.addEventListener('install', () => self.skipWaiting());
+// The list of every build file (generated after the build; missing in development).
+try {
+  importScripts('/precache.js');
+} catch {
+  self.PRECACHE = [];
+}
+
+/** Downloads every build file once, so even a chunk the page never loaded online is there offline. */
+async function precache() {
+  const cache = await caches.open(STATIC);
+  await Promise.all(
+    (self.PRECACHE || []).map(async (path) => {
+      if (await cache.match(path)) return;
+      try {
+        const response = await fetch(path);
+        if (response.ok) await cache.put(path, response);
+      } catch {
+        // Best effort: whatever is missing is fetched (and cached) when it is first needed online.
+      }
+    }),
+  );
+  // Forget files of older builds.
+  const wanted = new Set(self.PRECACHE || []);
+  if (wanted.size > 0)
+    for (const request of await cache.keys())
+      if (!wanted.has(new URL(request.url).pathname)) await cache.delete(request);
+}
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(precache());
+  self.skipWaiting();
+});
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
-// The page asks us to forget everything on sign-out: the cached HTML belongs to one user.
+// The page asks us to forget the cached HTML on sign-out: it belongs to one user. The build files in
+// STATIC are the same for everybody and stay.
 self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'clear') {
-    event.waitUntil(Promise.all([caches.delete(PAGES), caches.delete(STATIC)]));
-  }
+  if (event.data && event.data.type === 'clear') event.waitUntil(caches.delete(PAGES));
 });
 
 self.addEventListener('fetch', (event) => {

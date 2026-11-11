@@ -185,4 +185,85 @@ test.describe('offline', () => {
     });
     await ctx.close();
   });
+
+  test('a fresh tab that goes offline can still open the panel, the repeat editor, settings and the scope dialog', async ({
+    browser,
+  }) => {
+    await tracker.create({
+      roomId: rooms[2]!.id,
+      title: 'E2E offline series',
+      tzid: 'Europe/Kyiv',
+      startAt: kyivInstant(week.day(1), '10:00'),
+      endAt: kyivInstant(week.day(1), '11:00'),
+      rrule: 'FREQ=DAILY;COUNT=3',
+    });
+    const ctx = await contextAs(browser, 'ana');
+    const page = await ctx.newPage();
+    await openControlled(page, week.day(1));
+    // The service worker downloads every build file when it is installed (including the lazy chunks the
+    // page has not asked for yet): wait until it has them all, none of the dialogs was opened so far.
+    const expected = await page.evaluate(async () => {
+      const text = await (await fetch('/precache.js')).text();
+      return (JSON.parse(text.slice(text.indexOf('['), text.lastIndexOf(']') + 1)) as string[])
+        .length;
+    });
+    expect(expected).toBeGreaterThan(5);
+    await expect
+      .poll(
+        () => page.evaluate(async () => (await (await caches.open('static-v1')).keys()).length),
+        { timeout: 30_000 },
+      )
+      .toBeGreaterThanOrEqual(expected);
+
+    await ctx.setOffline(true);
+    await expect(syncState(page)).toHaveAttribute('data-status', 'offline');
+    const pageErrors: string[] = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+
+    // The settings dialog (lazy).
+    await page.getByTestId('open-settings').click();
+    await expect(page.getByTestId('settings-dialog')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('settings-dialog')).toBeHidden();
+
+    // The create panel (lazy) and, inside it, the repeat editor (a second lazy chunk).
+    await page.getByTestId('new-event').click();
+    await expect(page.getByTestId('event-panel')).toBeVisible();
+    await page.getByTestId('field-repeat').selectOption('weekly');
+    await expect(page.getByTestId('recurrence-editor')).toBeVisible();
+    await page.getByTestId('panel-close').click();
+    await page.getByTestId('discard').click(); // the form was changed: confirm throwing it away
+    await expect(page.getByTestId('event-panel')).toHaveCount(0);
+
+    // The "which occurrences?" dialog (lazy): deleting a recurring meeting asks.
+    await eventBlock(page, 'E2E offline series').click();
+    await page.keyboard.press('Delete');
+    await expect(page.getByTestId('scope-this')).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    await expect(page.getByTestId('time-grid')).toBeVisible(); // the page is still alive
+    expect(pageErrors).toEqual([]);
+    await ctx.close();
+  });
+
+  test('if a lazy part cannot be downloaded the user gets a message and the page keeps working', async ({
+    browser,
+  }) => {
+    // No service worker here: the panel's code was never downloaded and cannot be fetched now.
+    const ctx = await contextAs(browser, 'ana', { serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const pageErrors: string[] = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+    await openCalendar(page, 'week', week.day(1));
+    await ctx.setOffline(true);
+    await page.getByTestId('new-event').click();
+    await expect(page.getByTestId('toast')).toBeVisible();
+    await expect(page.getByTestId('event-panel')).toHaveCount(0);
+    // Nothing broke: the grid is still there and still reacts.
+    await expect(page.getByTestId('time-grid')).toBeVisible();
+    await page.getByTestId('open-settings').click();
+    await expect(page.getByTestId('toast').first()).toBeVisible();
+    expect(pageErrors).toEqual([]);
+    await ctx.close();
+  });
 });

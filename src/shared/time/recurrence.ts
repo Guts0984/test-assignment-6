@@ -131,13 +131,21 @@ export function isFiniteRule(rrule: string): boolean {
   return o.count != null || o.until != null;
 }
 
-/** Every occurrence of a non-recurring or FINITE recurring event. Throws for open-ended rules. */
-export function expandAll(src: RecurringSource): Occurrence[] {
+/**
+ * Every occurrence of a non-recurring or FINITE recurring event. Throws for open-ended rules.
+ * With `limit`, generation stops after `limit` occurrences (the result is then cut there), so an
+ * enormous rule costs a bounded amount of work instead of being expanded in full.
+ */
+export function expandAll(src: RecurringSource, limit = Number.POSITIVE_INFINITY): Occurrence[] {
   const p = prepare(src);
   if (!src.rrule) return [{ start: p.firstStart, end: parseInstant(src.endAt) }];
   if (!isFiniteRule(src.rrule)) throw new Error('expandAll needs a rule with COUNT or UNTIL');
   const rule = rrulestr(src.rrule, { dtstart: floating(p.localStart) });
-  return toOccurrences(src, p, rule.all());
+  return toOccurrences(
+    src,
+    p,
+    rule.all((_, i) => i < limit),
+  );
 }
 
 /** Does the event's first occurrence start exactly at `startAt` (i.e. the rule matches its own start)? */

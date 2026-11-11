@@ -154,4 +154,29 @@ test.describe('recurrence in the UI', () => {
     ]);
     await ctx.close();
   });
+
+  test('renaming a whole series (scope "all", no time change) is saved, not silently dropped', async ({
+    browser,
+  }) => {
+    await tracker.create({
+      roomId: rooms[9]!.id,
+      title: 'E2E series before',
+      tzid: 'Europe/Kyiv',
+      startAt: kyivInstant(week.day(1), '10:00'),
+      endAt: kyivInstant(week.day(1), '11:00'),
+      rrule: 'FREQ=DAILY;COUNT=3',
+    });
+    const ctx = await contextAs(browser, 'ana');
+    const page = await ctx.newPage();
+    await openCalendar(page, 'week', week.day(1));
+    await eventBlock(page, 'E2E series before').dblclick();
+    await expect(page.getByTestId('event-panel')).toBeVisible();
+    await page.getByTestId('field-title').fill('E2E series after');
+    await page.getByTestId('panel-save').click();
+    await page.getByTestId('scope-all').click(); // "all occurrences"
+    await expect(page.getByTestId('sync-indicator')).toHaveAttribute('data-status', 'saved');
+    await expect.poll(async () => (await occurrencesOf('E2E series after')).length).toBe(3); // all three renamed, none left under the old name
+    expect(await occurrencesOf('E2E series before')).toHaveLength(0);
+    await ctx.close();
+  });
 });

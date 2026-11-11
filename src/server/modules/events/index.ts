@@ -4,3 +4,4 @@ export { isOpenEnded, occurrencesOf, occurrenceRanges } from './materialize';
 export { eventAttendees, eventOccurrences, events } from './schema';
 export { listOccurrences } from './repository';
 export { extendOpenSeries } from './service/extend-series';
+export { isSupportedWindow, MAX_YEARS_AHEAD, supportedWindow } from './window';

@@ -14,5 +14,5 @@ export const makeDeleteEventHandler =
     if (!id) return apiError(404, 'NOT_FOUND');
     const query = parseQuery(req, deleteQuerySchema);
     if (!query.ok) return query.response;
-    return respondAndPublish(req, await deleteEvent(deps.db(), id, query.data));
+    return respondAndPublish(req, await deleteEvent(deps.db(), id, query.data), 200, ctx.user.id);
   };

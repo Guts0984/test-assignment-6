@@ -14,6 +14,7 @@ env:
 
 jobs:
   static:
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +30,7 @@ jobs:
       - run: pnpm test:unit
 
   integration:
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -54,6 +56,7 @@ jobs:
 
   storybook:
     # Builds Storybook and runs every story's play function (the interaction tests) in a real browser.
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,16 +70,14 @@ jobs:
       - run: pnpm build-storybook
         env:
           STORYBOOK_DISABLE_TELEMETRY: '1'
-      - name: Serve the static build and run the interaction tests
-        run: |
-          python3 -m http.server 6006 -d storybook-static >/dev/null 2>&1 &
-          for _ in $(seq 1 30); do curl -sf http://127.0.0.1:6006/index.json >/dev/null && break; sleep 1; done
-          pnpm test-storybook
+      - name: Interaction tests against the static build (the script serves it itself)
+        run: pnpm test-storybook --skip-build
 
   e2e:
     # One job per browser, each with its own docker-compose stack (migrations + seed run by the web
     # container). Against that stack: the e2e suite three times in a row without a restart.
     name: e2e (${{ matrix.browser }})
+    timeout-minutes: 40
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -124,6 +125,7 @@ jobs:
 
   screenshots:
     # 3 browsers x light/dark, inside the image the baselines were made in.
+    timeout-minutes: 25
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -161,6 +163,7 @@ jobs:
 
   performance:
     # Bundle size and Lighthouse budgets against the production image.
+    timeout-minutes: 25
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -195,6 +198,7 @@ jobs:
         run: docker compose down -v
 
   docker:
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

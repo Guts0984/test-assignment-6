@@ -12,6 +12,7 @@ export default tseslint.config(
       'storybook-static/**',
       '.lighthouseci/**',
       'dist/**',
+      'test-results/**',
       'public/precache.js',
       '.storybook/public/**',
       'next-env.d.ts',

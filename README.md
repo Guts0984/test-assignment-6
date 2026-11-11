@@ -190,19 +190,17 @@ What made it fit:
 - **Locale and zone come from the profile** (cookie session), not from the URL; the URL holds view, date and rooms.
 - **Auth** is a minimal session (scrypt passwords, HMAC-hashed session tokens in the database, httpOnly cookie).
   There are no roles; every signed-in user may edit any event (the creator and attendees are recorded and shown).
-- **Sign-in rate limit.** Failed attempts are stored in PostgreSQL (`login_failures`), so they survive a restart
-  and are shared by every instance. Per account, a client may fail 10 times per 15 minutes, then gets a 429 with
-  `Retry-After`, even for the right password. That limit is held only against clients that do not carry the
-  account's _known-browser_ cookie (an HMAC of the e-mail, set after a successful sign-in): so nobody can lock
-  you out of your usual browser by guessing at your address (a browser that has signed in has a separate, more
-  generous allowance of 30). A successful sign-in clears the failures of that kind of client only. Limits of
-  this design: you cannot sign in from a _new_ browser while somebody is guessing at your address (for up to 15
-  minutes), and a distributed guesser with many addresses is limited per account, not per source.
-  X-Forwarded-For is **not trusted by default** (a directly connected client controls it, and Next.js adds the
-  socket address only when the client sent none). If the app runs behind reverse proxies of yours, set
-  `TRUSTED_PROXY_HOPS` to their number: a further limit of 100 failures per address then applies, using the
-  entry your outermost proxy appended (counted from the end of the header, so anything the client wrote before
-  it is ignored).
+- **Sign-in rate limit.** There is deliberately **no limit per account**: any limit that counts failures for an
+  e-mail address can be used by a stranger who knows it (here every signed-in user can see everybody's) to keep
+  the owner from signing in, and an attacker can only be told apart by where they come from. The app can know
+  that only behind reverse proxies of its own, so with `TRUSTED_PROXY_HOPS` set to their number, one network
+  address may fail 100 times per 15 minutes and then gets a 429 with `Retry-After`, for every account, even with
+  the right password; other addresses are unaffected, and a successful sign-in does not reset the count. The
+  address is the entry your outermost proxy appended to `X-Forwarded-For`, counted from the end of the header, so
+  anything the client wrote before it is ignored. Without proxies (the default) the header is **not believed at
+  all** (a directly connected client controls it, and Next.js adds the socket address only when the client sent
+  none): the limit is off and guessing is only slowed by the cost of the password hash. The counts are kept in
+  PostgreSQL (`login_failures`), so they survive restarts and are shared by every instance.
 - **The conflict screen only appears for offline commands**; an online conflict is a rejection with the blocking
   event named, as the assignment describes for the two-browser case.
 - **Recurring events cannot be expanded in the browser** (that would need `rrule` in the first load): when a
